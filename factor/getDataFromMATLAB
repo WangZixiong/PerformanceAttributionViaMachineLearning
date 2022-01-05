@@ -1,0 +1,9 @@
+import numpy as np
+import pandas as pd
+import scipy.io as scio
+import pickle
+
+rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\'
+gtja191FactorDF = scio.loadmat(rootPath+'数据集\\calcFactors_gtja191_20211213.mat')
+a1 = gtja191FactorDF['alpha1'][0,0][0]
+SI = gtja191FactorDF['sharedInformation'][0,0]

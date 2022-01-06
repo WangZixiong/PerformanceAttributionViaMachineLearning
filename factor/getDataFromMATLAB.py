@@ -28,3 +28,6 @@ pickleDict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
 file = open(rootPath+'pickleFactors_40_gtja191.pickle','wb')
 pickle.dump(pickleDict,file)
 file.close()
+with open(r'C:\Users\Lenovo\Desktop\毕设材料\数据集\pickleFactors_40_gtja191.pickle','rb') as file:
+    dict_get = pickle.load(file)
+file.close()

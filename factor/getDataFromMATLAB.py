@@ -16,10 +16,15 @@ for factorName in gtja191FactorDict:
         axis1Time = gtja191FactorDict['sharedInformation'][0,0][0]
         axis2Stock = gtja191FactorDict['sharedInformation'][0,0][1]
         stockList = []
+        # 个股代码没有后缀，填上
         for stockInd in range(np.size(axis2Stock)):
-            stockList.append(axis2Stock[stockInd][0][0])
+            if str(axis2Stock[stockInd][0][0])[0] == '6':
+                stockStr = str(axis2Stock[stockInd][0][0])+'.SH'
+            else:
+                stockStr = str(axis2Stock[stockInd][0][0])+'.SZ'
+            stockList.append(stockStr)
         pickleDict[factorName] = {'factorCalculation':factorCal,'factorMatrix':result}
 pickleDict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
-# file = open(rootPath+'pickleFactors_gtja191.pickle','wb')
-# pickle.dump(pickleDict,file)
-# file.close()
+file = open(rootPath+'pickleFactors_gtja191_40.pickle','wb')
+pickle.dump(pickleDict,file)
+file.close()

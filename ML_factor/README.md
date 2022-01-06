@@ -3,10 +3,7 @@
 ##### 使用不同的机器学习模型训练数据，预测未来1天、5天、10天的收益
 #### 1.2.2 模块参数设置
 ##### 训练过程中涉及到三个超参数：a.train+validation所用天数，b.validation所用天数 c.rolling窗口长度
-##### 参数b我们默认train天数：validation天数 = 8:2，且时序上train集在validation集的前面
-##### 对于参数a c，原则上应该做grid search，画两个维度的热力图
-##### 我们按照统一的a c参数进行训练，其中a用2年，即500个工作日中前400个工作日训练，后100个工作日validate
-##### c用3个月，即60个工作日进行滚动，采用rolling而非expanding的方式训练和测试
+##### 对于参数b，我们默认train天数：validation天数 = 8:2，且时序上train集在validation集的前面。对于参数a c，原则上应该做grid search，画两个维度的热力图。我们按照统一的a c参数进行训练，其中a用2年，即500个工作日中前400个工作日训练，后100个工作日validate。c用3个月，即60个工作日进行滚动，采用rolling而非expanding的方式训练和测试。
 ##### for example：采用2017年1月1日到2018年12月31日的数据train+validation，采用2019年1月1日到2019年3月31日的数据test
 ##### rolling是指，获得1月1日到3月31日的数据后，换用2017年4月1日到2019年3月31日的数据train+validation，2019年4月1日到2019年6月30日的数据test
 ##### 科普：validation是帮助train判断何时结束的预test集，train得到的误差值不断下滑，validation先下滑后上升，当出现上升时意味着出现过拟合了，可以停止训练，early-stopping

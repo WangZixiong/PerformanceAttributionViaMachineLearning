@@ -21,7 +21,7 @@
 #### 1.2.2 因子合成步骤拆解
 ##### 机器学习模型分类
 ##### A.线性模型（OLS、Ridge、Lasso）
-##### B.树模型（RandonForest，XGBoost，LGBM）
+##### B.树模型（RandonForest，XGBoost，bagging，LGBM）
 ##### C.神经网络（CNN,KNN,e.g.）
 ##### 训练，测试，调参
 

@@ -25,6 +25,6 @@ for factorName in gtja191FactorDict:
             stockList.append(stockStr)
         pickleDict[factorName] = {'factorCalculation':factorCal,'factorMatrix':result}
 pickleDict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
-file = open(rootPath+'pickleFactors_gtja191_40.pickle','wb')
+file = open(rootPath+'pickleFactors_40_gtja191.pickle','wb')
 pickle.dump(pickleDict,file)
 file.close()

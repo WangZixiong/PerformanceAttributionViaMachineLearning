@@ -4,8 +4,8 @@ import pandas as pd
 import scipy.io as scio
 import pickle
 
-rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\数据集\\'
-gtja191FactorDict = scio.loadmat(rootPath+'calcFactors_gtja191_20211213.mat')
+rootPath = 'C:\\Users\\Lenovo\\Desktop\\'
+gtja191FactorDict = scio.loadmat(rootPath+'calcFactors_gtja191_40_20220106_.mat')
 pickleDict = {}
 for factorName in gtja191FactorDict:
     if 'alpha' in factorName:

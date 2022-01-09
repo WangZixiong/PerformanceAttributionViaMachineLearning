@@ -4,8 +4,9 @@
 @File    : test_MLfactor.py
 @Software: PyCharm
 """
-from ML_factor.CNN import CNNModel
+from ML_factor.CNN import CNN
 
-c = CNNModel()
-c.X_prepare()
-c.Y_prepare()
+c = CNN()
+c.data_preparation()
+model = c.rolling_fit()
+model

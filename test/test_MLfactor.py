@@ -4,9 +4,9 @@
 @File    : test_MLfactor.py
 @Software: PyCharm
 """
-from ML_factor.CNN import CNN
+from ML_factor.RandomForest import RF
 
-c = CNN()
+c = RF()
 c.data_preparation()
 model = c.rolling_fit()
 model

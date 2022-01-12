@@ -5,7 +5,7 @@ import scipy.io as scio
 import pickle
 
 rootPath = 'C:\\Users\\Lenovo\\Desktop\\'
-gtja191FactorDict = scio.loadmat(rootPath+'calcFactors_gtja191_40_20220106_.mat')
+gtja191FactorDict = scio.loadmat(rootPath+'calcFactors_gtja191_20220111_.mat')
 pickleDict = {}
 for factorName in gtja191FactorDict:
     if 'alpha' in factorName:
@@ -23,11 +23,17 @@ for factorName in gtja191FactorDict:
             else:
                 stockStr = str(axis2Stock[stockInd][0][0])+'.SZ'
             stockList.append(stockStr)
-        pickleDict[factorName] = {'factorCalculation':factorCal,'factorMatrix':result}
+
+        # 识别是否是空集，若是则舍去
+        mapResult = result.reshape([np.shape(result)[0]*np.shape(result)[1],1])
+        notNanRate = len(mapResult[~np.isnan(mapResult)])/(np.shape(result)[0]*np.shape(result)[1])
+        print(factorName,notNanRate)
+        if notNanRate >0.2:
+            pickleDict[factorName] = {'factorCalculation': factorCal, 'factorMatrix': result}
 pickleDict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
-file = open(rootPath+'pickleFactors_40_gtja191.pickle','wb')
+file = open(rootPath+'pickleFactors_new40_gtja191.pickle','wb')
 pickle.dump(pickleDict,file)
 file.close()
-with open(r'C:\Users\Lenovo\Desktop\毕设材料\数据集\pickleFactors_40_gtja191.pickle','rb') as file:
+with open(r'C:\Users\Lenovo\Desktop\pickleFactors_new40_gtja191.pickle','rb') as file:
     dict_get = pickle.load(file)
 file.close()

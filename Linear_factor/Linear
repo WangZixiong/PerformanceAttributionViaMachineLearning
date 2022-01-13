@@ -1,0 +1,172 @@
+""" 
+@Time    : 2022/1/8 15:32
+@Author  : Carl
+@File    : CNN.py
+@Software: PyCharm
+"""
+import os
+import pickle
+import pandas as pd
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader, TensorDataset
+from data.basicData import BasicData
+import torch.optim as opt
+from sklearn.linear_model import Lasso,LassoCV
+from sklearn.linear_model import Ridge,RidgeCV
+
+class LinearModel(torch.nn.Module): #从Module继承
+    #必须实现以下两个函数
+    #初始化
+    def __init__(self):
+        super(LinearModel, self).__init__()  #调用父类的初始化
+        self.linear = torch.nn.Linear(40, 1)  #构造一个对象，包含权重和偏置
+        #Linear的参数为，输入的维度（特征数量，不是样本数量）和输出的维度，以及是否有偏置(默认为True)
+    #前馈过程中进行的计算
+    def forward(self, x):  #这里实际上是一个override
+        y_pred = self.linear(x)  #在这里计算w * x + b 线性模型
+        return y_pred
+    
+class olslinear(LinearModel):
+    def __init__(self,normalize=0):
+        super().__init__()
+        self.T = len(BasicData.basicFactor['sharedInformation']['axis1Time'])
+        self.N = len(BasicData.basicFactor['sharedInformation']['axis2Stock'])
+        self.rolling_step = 60
+        self.batch_size = 500
+        self.val_proportion = 0.2
+        self.lookback_num = 10
+        self.normalize=normalize
+
+    def set_paras(self, **kwargs):
+        self.rolling_step = kwargs.get('rolling_step')
+        self.batch_size = kwargs.get('batch_size')
+        self.val_proportion = kwargs.get('val_proportion')
+
+    def get_tradedays(self):
+        self.all_date = pd.DataFrame(BasicData.basicFactor['sharedInformation']['axis1Time'], columns=['date'])
+        self.all_date['date'] = (self.all_date.date-719529)*86400
+        self.all_date['date'] = pd.to_datetime(self.all_date.date, unit='s')
+        self.all_date = [str(d.date()) for d in self.all_date['date']]
+        self.all_date = [int(d.replace('-', '')) for d in self.all_date]
+        self.all_date.sort()
+
+    def X_prepare(self):
+        # self.X = list(range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'])))
+        self.X = list(range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'][:2])))
+        for n, s in enumerate(BasicData.basicFactor['sharedInformation']['axis2Stock'][:2]):
+            for k, (key, value) in enumerate(BasicData.basicFactor.items()):
+                if key != 'sharedInformation':
+                    if k == 0:
+                        s_factor = value['factorMatrix'][:, n].reshape((self.T, 1))
+                    else:
+                        s_factor = np.hstack((s_factor, value['factorMatrix'][:, n].reshape((self.T, 1))))
+
+            s_X = list(range(self.T - 10))
+            for d in range(self.lookback_num, self.T):
+                s_X[d-10] = s_factor[d-self.lookback_num: d]
+            self.X[n] = s_X
+        # self.X = np.array(self.X)
+        with open('./data/CNNData_feature.pkl', 'wb') as file:
+            pickle.dump(self.X, file)
+
+    def Y_prepare(self):
+        self.get_tradedays()
+        """
+        matlab时间戳 转成 python日期的方法，例：734508
+        （734508-719529）* 86400
+        """
+        # 如何复权？
+        # 并表
+        # self.all_stock = BasicData.basicFactor['sharedInformation']['axis2Stock']
+        self.all_stock = BasicData.basicFactor['sharedInformation']['axis2Stock'][:2]
+        self.all_return = pd.DataFrame([s for s in self.all_stock for i in range(len(self.all_date))], index=self.all_date*len(self.all_stock), columns=['s_info_windcode'])
+        self.all_return.set_index([self.all_return.index, self.all_return.s_info_windcode], inplace=True)
+
+        all_return = BasicData.basicMkt[['s_info_windcode', 'trade_dt']].copy()
+        all_return['return'] = np.log(BasicData.basicMkt.s_dq_close)
+        all_return.sort_values(['s_info_windcode', 'trade_dt'], inplace=True)
+        all_return.loc[:, 'return'] = all_return.groupby('s_info_windcode')['return'].diff()
+        all_return.set_index(['trade_dt', 's_info_windcode'], inplace=True)
+
+        self.all_return['return'] = all_return['return']
+        self.all_return = self.all_return.droplevel(1)
+        self.Y = list(range(len(self.all_stock)))
+        for n, s in enumerate(self.all_stock):
+            for d in range(self.lookback_num, self.T):
+                self.Y[n] = self.all_return.loc[self.all_return.s_info_windcode == s, 'return'].values[10:]
+        self.Y = np.array(self.Y)
+        with open('./data/CNNData_label.pkl', 'wb') as file:
+            pickle.dump(self.Y, file)
+
+    def data_preparation(self):
+        if os.path.exists('./data/CNNData_feature.pkl'):
+            self.X = pd.read_pickle('./data/CNNData_feature.pkl')
+            self.Y = pd.read_pickle('./data/CNNData_label.pkl')
+        else:
+            self.X_prepare()
+            self.Y_prepare()
+    
+    def cv_hyper_param(self,x_train,y_train):
+        if self.normalize==1:            
+            lassocv=LassoCV()
+            lassocv.fit(x_train,y_train)
+            return lassocv.alpha_
+        elif self.normalize==2:
+            ridgecv=RidgeCV()
+            ridgecv.fit(x_train,y_train)
+            return ridgecv.alpha_
+        elif self.normalize==0:
+            return 0
+        # lambda_list=np.range(0,1,grid)
+        # for lambda_ in lambda_list:
+            
+            # lasso=Lasso(alpha=lambda_,normalize=False)
+            # lasso.fit(x_train,y_train)
+            
+
+    def rolling_fit(self):
+        self.X = torch.Tensor(np.array(self.X))
+        self.Y = torch.Tensor(np.array(self.Y))
+
+        model_list = [LinearModel() for i in range(10)]
+        # optimizer = opt.SGD(model.parameters(), lr=0.01)
+        loss_func = nn.MSELoss()
+        for i in range(self.X.shape[2]):
+            x_slice=self.X[:,:, i, :]
+            optimizer = opt.SGD(model_list[i].parameters(), lr=0.01)
+            for step in range((self.Y.shape[1]-self.batch_size)//self.rolling_step+1):
+                x_train = x_slice[:, self.rolling_step*step:self.batch_size+self.rolling_step*step, :].flatten(0, 1)
+                y_train = self.Y[:, self.rolling_step*step:self.batch_size+self.rolling_step*step].flatten(0,1)
+                ##补充nan为0
+                x_train=torch.Tensor(np.nan_to_num(x_train.numpy()))
+                y_train =torch.Tensor(np.nan_to_num(y_train.numpy()))
+                dataset = TensorDataset(x_train, y_train)
+                loader = DataLoader(dataset=dataset, batch_size=10, shuffle=True)
+                model_list[i](torch.Tensor(np.nan_to_num(x_train.numpy())))
+                lambda_=self.cv_hyper_param(x_train,y_train)
+                for epoch in range(50):
+                    for s, (batch_x, batch_y) in enumerate(loader):
+                        predict = model_list[i](batch_x)
+                        loss = loss_func(batch_y.reshape(len(batch_y), 1), predict)
+                        if self.normalize==1:
+                            lambd = torch.tensor(lambda_)
+                            # lambd=torch.tensor(0.5)
+                            L1_reg = torch.tensor(0., requires_grad=True)
+                            for name, param in model_list[i].named_parameters():
+                                if 'weight' in name:
+                                    L1_reg = L1_reg + torch.norm(param, 1)
+                            loss += lambd * L1_reg
+                        elif self.normalize==2:
+                            lambd = torch.tensor(lambda_)
+                            l2_reg = torch.tensor(0.)
+                            for param in model_list[i].parameters():
+                                l2_reg += torch.norm(param)
+                            loss += lambd * l2_reg
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+                print("epoch={}, step={}, loss={}".format(step, epoch, loss.data.numpy()))
+        return model_list
+

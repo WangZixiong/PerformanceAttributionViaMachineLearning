@@ -67,9 +67,9 @@ class RF():
 
     def data_preparation(self):
         if os.path.exists(rootPath+r'\data\RFData_feature.pkl'):
-            self.X = pd.read_pickle(rootPath+r'\data\RFData_feature.pkl')
+           self.X = pd.read_pickle(rootPath+r'\data\RFData_feature.pkl')
         else:
-            self.X_preperation()
+           self.X_preperation()
         if os.path.exists(rootPath + r'\data\RFData_label.pkl'):
             self.Y = pd.read_pickle(rootPath + r'\data\RFData_label.pkl')
         else:
@@ -119,6 +119,7 @@ class RF():
     def rolling_fit(self):
         self.get_tradedays()
         model = RandomForestRegressor(criterion = 'mse',max_depth= 4)
+        R2oosDF = pd.DataFrame()
         for step in tqdm(range((len(self.all_date)-self.batch_size)//self.rolling_step+1)):
             trainStartDateInd, trainEndDateInd = step*self.rolling_step,self.batch_size+step*self.rolling_step
             testStartDateInd, testEndDateInd = self.batch_size+step * self.rolling_step, min(self.batch_size + (step+1) * self.rolling_step,self.T)
@@ -130,5 +131,7 @@ class RF():
             model.fit(X_train,y_train)
             y_predict = model.predict(X_test)
             mse = metrics.mean_squared_error(y_test,y_predict)
-            print("step={}, startDate = {},endDate = {}, mse={}".format(step, self.all_date[trainStartDateInd], self.all_date[testStartDateInd],mse))
-            return float(format(mse,'.2g'))
+            R2oos = 1-mse/metrics.mean_squared_error(y_test,np.zeros(np.shape(y_test)[0]))
+            print("step={}, startDate = {},endDate = {}, Roos2={}".format(step, self.all_date[trainStartDateInd], self.all_date[testStartDateInd],R2oos))
+            R2oosDF.loc[self.all_date[testStartDateInd],self.all_date[testEndDateInd]] = float(format(R2oos,'.2g'))
+        return R2oosDF

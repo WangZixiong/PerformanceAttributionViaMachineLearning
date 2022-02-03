@@ -5,141 +5,170 @@
 @Software: PyCharm
 """
 import os
-import pickle
+import torch
+import itertools
+import math
 import pandas as pd
 import numpy as np
-import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-from data.basicData import BasicData
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
 import torch.optim as opt
 
 class CNNModel(nn.Module):
-    def __init__(self, kernel_size=3, stride=2):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv1d(
-                in_channels=10,
-                out_channels=100,
-                kernel_size=kernel_size,
-                stride=stride,
-                padding=0
-            ),
-            nn.ReLU(),
-            nn.MaxPool1d(
-                kernel_size=kernel_size
-            )
-        )
-
-        self.output = nn.Linear(600, 1)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)
-        output = self.output(x)
-        return output
-
-class CNN(CNNModel):
     def __init__(self):
         super().__init__()
-        self.T = len(BasicData.basicFactor['sharedInformation']['axis1Time'])
-        self.N = len(BasicData.basicFactor['sharedInformation']['axis2Stock'])
-        self.rolling_step = 60
-        self.batch_size = 500
+        self.conv_0 = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+        )
+
+        self.conv = nn.Sequential(
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+        )
+
+        self.fc_0 = nn.Sequential(
+            nn.Linear(64*10*153, 64),
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(64, 64),
+        )
+
+        # prediction
+        self.output = nn.Linear(64, 1)
+        # classification
+        # self.output = nn.Linear(64, 2)
+
+    def set_base_layers(self, num_conv=1, num_fc=1):
+        self.conv_layer = nn.ModuleList([self.conv for _ in range(num_conv)])
+        self.fc_layer = nn.ModuleList([self.fc for _ in range(num_fc)])
+
+    def forward(self, x):
+        x = F.normalize(x, dim=-2, p=2)
+        out = self.conv_0(x)
+        for conv in self.conv_layer:
+            out = conv(out)
+        out = out.view(x.shape[0], -1)
+        out = self.fc_0(out)
+        for fc in self.fc_layer:
+            out = fc(out)
+        out = self.output(out)
+        return out
+
+class CNN:
+    def __init__(self):
+        super().__init__()
+        self.step = 1
+        self.data_size = 201
         self.val_proportion = 0.2
-        self.lookback_num = 10
+        self.group_info = pd.read_pickle('./data/cnnData/group_info.pkl')
+        # prediction
+        self.Y = pd.read_pickle('./data/cleanData/y_prediction.pkl')
+        # classification
+        # self.Y = pd.read_pickle('.data/cleanData/y_classification.pkl')
 
     def set_paras(self, **kwargs):
-        self.rolling_step = kwargs.get('rolling_step')
-        self.batch_size = kwargs.get('batch_size')
-        self.val_proportion = kwargs.get('val_proportion')
+        if kwargs.get('step') is not None:
+            self.step = kwargs.get('step')
+        if kwargs.get('data_size') is not None:
+            self.data_size = kwargs.get('data_size')
+        if kwargs.get('val_proportion') is not None:
+            self.val_proportion = kwargs.get('val_proportion')
 
-    def get_tradedays(self):
-        self.all_date = pd.DataFrame(BasicData.basicFactor['sharedInformation']['axis1Time'], columns=['date'])
-        self.all_date['date'] = (self.all_date.date-719529)*86400
-        self.all_date['date'] = pd.to_datetime(self.all_date.date, unit='s')
-        self.all_date = [str(d.date()) for d in self.all_date['date']]
-        self.all_date = [int(d.replace('-', '')) for d in self.all_date]
-        self.all_date.sort()
+    def initiate_models(self, conv_range=4, fc_range=3):
+        self.model_list = list()
+        para_list = list(itertools.product(range(1, conv_range), range(1, fc_range)))
+        for para in para_list:
+            model = CNNModel()
+            model.set_base_layers(*para)
+            self.model_list.append(model)
 
-    def X_prepare(self):
-        # self.X = list(range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'])))
-        self.X = list(range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'][:2])))
-        for n, s in enumerate(BasicData.basicFactor['sharedInformation']['axis2Stock'][:2]):
-            for k, (key, value) in enumerate(BasicData.basicFactor.items()):
-                if key != 'sharedInformation':
-                    if k == 0:
-                        s_factor = value['factorMatrix'][:, n].reshape((self.T, 1))
-                    else:
-                        s_factor = np.hstack((s_factor, value['factorMatrix'][:, n].reshape((self.T, 1))))
+    def __data_load(self, group):
+        data = pd.read_pickle(f'./data/cnnData/{group}_cnnFactors_gtja191_211211')
+        return data
 
-            s_X = list(range(self.T - 10))
-            for d in range(self.lookback_num, self.T):
-                s_X[d-10] = s_factor[d-self.lookback_num: d]
-            self.X[n] = s_X
-        # self.X = np.array(self.X)
-        with open('./data/CNNData_feature.pkl', 'wb') as file:
-            pickle.dump(self.X, file)
-
-    def Y_prepare(self):
-        self.get_tradedays()
-        """
-        matlab时间戳 转成 python日期的方法，例：734508
-        （734508-719529）* 86400
-        """
-        # 如何复权？
-        # 并表
-        # self.all_stock = BasicData.basicFactor['sharedInformation']['axis2Stock']
-        self.all_stock = BasicData.basicFactor['sharedInformation']['axis2Stock'][:2]
-        self.all_return = pd.DataFrame([s for s in self.all_stock for i in range(len(self.all_date))], index=self.all_date*len(self.all_stock), columns=['s_info_windcode'])
-        self.all_return.set_index([self.all_return.index, self.all_return.s_info_windcode], inplace=True)
-
-        all_return = BasicData.basicMkt[['s_info_windcode', 'trade_dt']].copy()
-        all_return['return'] = np.log(BasicData.basicMkt.s_dq_close)
-        all_return.sort_values(['s_info_windcode', 'trade_dt'], inplace=True)
-        all_return.loc[:, 'return'] = all_return.groupby('s_info_windcode')['return'].diff()
-        all_return.set_index(['trade_dt', 's_info_windcode'], inplace=True)
-
-        self.all_return['return'] = all_return['return']
-        self.all_return = self.all_return.droplevel(1)
-        self.Y = list(range(len(self.all_stock)))
-        for n, s in enumerate(self.all_stock):
-            for d in range(self.lookback_num, self.T):
-                self.Y[n] = self.all_return.loc[self.all_return.s_info_windcode == s, 'return'].values[10:]
-        self.Y = np.array(self.Y)
-        with open('./data/CNNData_label.pkl', 'wb') as file:
-            pickle.dump(self.Y, file)
-
-    def data_preparation(self):
-        if os.path.exists('./data/CNNData_feature.pkl'):
-            self.X = pd.read_pickle('./data/CNNData_feature.pkl')
-            self.Y = pd.read_pickle('./data/CNNData_label.pkl')
+    def data_preparation(self, r):
+        Y = self.Y[:, r*self.step+10:r*self.step+self.data_size+10]
+        if self.group_info['groupInfo'][r*self.step+9] != self.group_info['groupInfo'][r*self.step+self.data_size+9]:
+            group1 = self.group_info['groupInfo'][r*self.step+9]
+            group2 = self.group_info['groupInfo'][r*self.step+self.data_size+9]
+            X_data = self.__data_load(group1)
+            X = np.zeros((self.Y.shape[0], self.data_size, X_data.shape[-2], X_data.shape[-1]))
+            if group1 == 2011:
+                s1 = r*self.step
+            else:
+                s1 = r*self.step - self.group_info['groupLimit'][group1-1]
+            e1 = self.group_info['groupLimit'][group1] - self.group_info['groupLimit'][group1-1]
+            X[:, 0:(e1-s1), :, :] = X_data[:, s1:e1, :, :]
+            e2 = self.data_size-(e1-s1)
+            X_data = self.__data_load(group2)
+            X[:, (e1-s1):, :, :] = X_data[:, 0:e2, :, :]
         else:
-            self.X_prepare()
-            self.Y_prepare()
-
-    # def mse_loss(self, real, pred):
-    #     return torch.mean(torch.pow(real-pred, 2))
+            group = self.group_info['groupInfo'][r * self.step + 9]
+            X_data = self.__data_load(group)
+            if group == 2011:
+                start = r*self.step
+            else:
+                start = r*self.step - self.group_info['groupLimit'][group-1]
+            X = X_data[:, start:start+self.data_size, :, :]
+        return X, Y
 
     def rolling_fit(self):
-        self.X = torch.Tensor(np.array(self.X))
-        self.Y = torch.Tensor(np.array(self.Y))
+        self.initiate_models()
+        for r in range(math.ceil((self.Y.shape[1]-10-self.data_size)/self.step)):
+            print(f'Rolling: {r}')
+            X, Y = self.data_preparation(r)
+            X = torch.Tensor(X)
+            Y = torch.Tensor(Y)
+            X_test = X[:, -1, :, :].unsqueeze(1)
+            Y_test = Y[:, -1].unsqueeze(1)
+            X = X[:, :-1, :, :].reshape(X.shape[0]*(X.shape[1]-1), 1, X.shape[2], X.shape[3])
+            Y = Y[:, :-1].reshape(Y.shape[0]*(Y.shape[1]-1), 1)
+            dataset = TensorDataset(X, Y)
+            train_dataset, val_dataset = torch.utils.data.random_split(dataset, [round(Y.shape[0]*0.8), round(Y.shape[0]*0.2)])
+            train_loader = DataLoader(dataset=train_dataset, shuffle=True, batch_size=50)
+            val_loader = DataLoader(dataset=val_dataset, shuffle=True, batch_size=50)
+            loss_func = nn.MSELoss()
+            best_score = list()
+            for model_id, model in enumerate(self.model_list):
+                optimizer = opt.Adam(model.parameters())
+                train_losses = list()
+                train_loss = 0
+                for epoch in range(100):
+                    for b_id, (inputs, labels) in enumerate(train_loader):
+                        outputs = model(inputs)
+                        loss = loss_func(outputs, labels)
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+                        train_loss += loss.item()
+                    train_losses.append(train_loss/(b_id+1))
+                    print(f'model{model_id} epoch:{epoch} loss:{train_losses[epoch]}')
+                    if epoch >= 3 and np.diff(train_losses[epoch-3:]).min() > 0:
+                        print('early stop!!!')
+                        continue
+                for b_id, (inputs, labels) in enumerate(val_loader):
+                    if b_id == 0:
+                        predictions = model(inputs)
+                        true_label = labels
+                    else:
+                        predictions += model(inputs)
+                        true_label += labels
+                val_loss = loss_func(predictions, true_label)
 
-        model = CNNModel()
-        optimizer = opt.SGD(model.parameters(), lr=0.01)
-        loss_func = nn.MSELoss()
-        for step in range((self.Y.shape[1]-self.batch_size)//self.rolling_step+1):
-            x_train = self.X[:, self.rolling_step*step:self.batch_size+self.rolling_step*step, :, :].flatten(0, 1)
-            y_train = self.Y[:, self.rolling_step*step:self.batch_size+self.rolling_step*step].flatten(0,1)
-            dataset = TensorDataset(x_train, y_train)
-            loader = DataLoader(dataset=dataset, batch_size=10, shuffle=True)
+                if model_id == 0:
+                    best_score.append((f'model{model_id}', val_loss))
+                else:
+                    best_score[r] = (f'model{model_id}', val_loss) if val_loss < best_score[r][1] else best_score[r]
 
-            for epoch in range(50):
-                for s, (batch_x, batch_y) in enumerate(loader):
-                    predict = model(batch_x)
-                    loss = loss_func(batch_y.reshape(len(batch_y), 1), predict)
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                    print("epoch={}, step={}, loss={}".format(step, epoch, s, loss.data.numpy()))
-        return model
+
+
+
+
+
+

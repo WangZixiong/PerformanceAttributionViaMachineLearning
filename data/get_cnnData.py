@@ -22,6 +22,7 @@ for i, f in enumerate(data):
     if f != 'sharedInformation':
         cleanData[:, :, i] = data[f]['factorMatrix'].T
 cleanData[np.isnan(cleanData)] = 0
+cleanData[np.isinf(cleanData)] = 0
 with open('./data/cleanData/cleanFactors_gtja191_211211.pkl', 'wb') as file:
     pickle.dump(cleanData, file)
 

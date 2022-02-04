@@ -4,7 +4,6 @@
 @File    : CNN.py
 @Software: PyCharm
 """
-import os
 import torch
 import itertools
 import math

@@ -8,10 +8,11 @@ import pickle
 rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
 
 # 转化gtja191因子
-gtja191FactorDict = scio.loadmat(rootPath+'data\\calcFactors_gtja191_20220111_.mat')
+gtja191FactorDict = scio.loadmat(rootPath+'data\\calcFactors_gtja191_20220204_.mat')
+notNaNRateDF = pd.DataFrame()
 pickleDict = {}
 for factorName in gtja191FactorDict:
-    if 'alpha' in factorName:
+    if 'alpha' in factorName and int(factorName[5:]) < 43:
         result = gtja191FactorDict[factorName][0,0][0]
         description = gtja191FactorDict[factorName][0,0][1][0,0]
         factorName = description[0][0]
@@ -28,16 +29,23 @@ for factorName in gtja191FactorDict:
             stockList.append(stockStr)
 
         # 识别是否是空集，若是则舍去
-        mapResult = result.reshape([np.shape(result)[0]*np.shape(result)[1],1])
-        notNanRate = len(mapResult[~np.isnan(mapResult)])/(np.shape(result)[0]*np.shape(result)[1])
-        print(factorName,notNanRate)
-        if notNanRate >0.2:
-            pickleDict[factorName] = {'factorCalculation': factorCal, 'factorMatrix': result}
+        #mapResult = result.reshape([np.shape(result)[0]*np.shape(result)[1],1])
+        #notNanRate = len(mapResult[~np.isnan(mapResult)])/(np.shape(result)[0]*np.shape(result)[1])
+        #print(factorName,notNanRate)
+        #notNaNRateDF.loc[factorName,'非空元素比例'] = notNanRate
+        #if notNanRate >0.2:
+        #    pickleDict[factorName] = {'factorCalculation': factorCal, 'factorMatrix': result}
 pickleDict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
-file = open(rootPath+'pickleFactors_new40_gtja191.pickle','wb')
-pickle.dump(pickleDict,file)
+# 提取40个因子做训练
+factorNameList = list(pickleDict.keys())
+pickle40Dict = {}
+pickle40Dict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
+for ind in range(40):
+    pickle40Dict[factorNameList[ind]] = pickleDict[factorNameList[ind]]
+file = open(rootPath+'data\\pickleFactors_40factor_gtja191.pickle','wb')
+pickle.dump(pickle40Dict,file)
 file.close()
-with open(r'C:\Users\Lenovo\Desktop\pickleFactors_new40_gtja191.pickle','rb') as file:
+with open(rootPath+'data\\pickleFactors_40factor_gtja191.pickle','rb') as file:
     dict_get = pickle.load(file)
 file.close()
 
@@ -57,9 +65,9 @@ for ind in range(len(stockCodeFileNameArray)):
 timeList = list(marketInfoDict['aggregatedDataStruct']['sharedInformation']['allDates'].value[0])
 pickleDict['sharedInformation'] = {'axis1Time':timeList,'axis2Stock':stockList}
 # 获取于收盘价交易的个股收益,不知为何读入数据时发生了转置，为了保证列为时间序列，行为个股截面，转置回来
-openPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['open'].value.T
-pickleDict['openPrice'] = openPrice
+openPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_open'].value.T
+pickleDict['OpenPrice'] = openPrice
 
-with open(rootPath+'data\\pickleMarketOpenPrice.pickle','wb') as file:
+with open(rootPath+'data\\pickleMarketForwardOpenPrice.pickle','wb') as file:
     pickle.dump(pickleDict,file)
 file.close()

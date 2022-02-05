@@ -19,8 +19,9 @@ class SingleFactorBacktest(object):
     def __init__(self, factorName, factorExposure, price, tradePoint='close'):
         # 因子名称，个股因子载荷，个股股价，交易时点，收益
         self.factorName = factorName
+        # factorExposure默认一列为一只个股的不同时间载荷，一行为一个时点的不同个股载荷
         self.factorExposure = factorExposure
-        # 这里的factorExposure默认一列为一只个股的不同时间载荷，一行为一个时点的不同个股载荷
+        # price格式为dataframe格式
         self.price = price
         self.tradePoint = tradePoint
         self.rts = self.price / self.price.shift(1) - 1
@@ -53,6 +54,7 @@ class SingleFactorBacktest(object):
             groupPosition = pd.DataFrame(data=np.zeros(self.factorRank.shape),
                                          index = self.factorRank.index,columns = self.factorRank.columns)
             # 根据时点上排序个股数量决定分组情况
+            # 当因子值不足以分为layerNum个组时，本方法失效
             if self.factorRank.max(skipna = True).max(skipna = True)<layerIndex:
                 print('Number of Layers Excess Number of Ranks.')
                 return
@@ -63,7 +65,7 @@ class SingleFactorBacktest(object):
                               (self.factorRank.sub(self.factorRank.max(axis = 1)*layerIndex/layerNum,axis = 0) <= 0)] = 1
             groupRts[groupName] = np.hstack((0, np.nanmean(groupPosition.iloc[:-1, :].values * self.rts.iloc[1:, :].values, axis=1)))
             groupCumRts[groupName] = (1+groupRts[groupName]).cumprod()-1
-            # 判断该因子值与收益率是正相关or负相关
+        # 判断该因子值与收益率是正相关or负相关
         if groupCumRts.iloc[-1,0] < groupCumRts.iloc[-1,-1]:
             self.factorMode = 1
         else:
@@ -101,6 +103,7 @@ class SingleFactorBacktest(object):
         ICPerformance = ICPerformance.set_index(['IC_mean'])
         ICPerformance.index.name = None
         ICPerformance.columns.name = 'IC_mean'
+
         print(ICPerformance)
         self.ICPerformance = ICPerformance
 
@@ -108,9 +111,14 @@ class SingleFactorBacktest(object):
     def calcIC(self):
         # 初始化IC序列，提前规定好了数值类型为float64，不知道是何目的
         IC = pd.Series(index = self.rts.index[1:], dtype='float64', name=self.factorName)
-        for dateInd in range(len(self.rts.index[1:])):
+        for dateInd in range(len(self.rts.index[2:])):
             # 对每个时刻，计算当期因子值和第二天的个股收益的相关系数，得到二维矩阵
-            corrDT = pd.DataFrame(list(zip(self.factorExposure.iloc[dateInd],self.rts.iloc[dateInd+1]))).dropna()
+            # 如果价格取开盘价，则以第二天开盘价买入，第三天开盘价卖出
+            # 如果价格取收盘价，则以当天收盘价买入，第二天收盘价卖出
+            if self.tradePoint =='close':
+                corrDT = pd.DataFrame(list(zip(self.factorExposure.iloc[dateInd],self.rts.iloc[dateInd+1]))).dropna()
+            elif self.tradePoint =='open':
+                corrDT = pd.DataFrame(list(zip(self.factorExposure.iloc[dateInd],self.rts.iloc[dateInd+2]))).dropna()
             corrMat = corrDT.corr()
             IC[dateInd] = 0 if corrMat.isna().iloc[0,1] else corrMat.iloc[0, 1]
         self.IC = IC
@@ -118,7 +126,10 @@ class SingleFactorBacktest(object):
         # 初始化IC序列，提前规定好了数值类型为float64，不知道是为什么
         ICRank = pd.Series(index=self.rts.index[1:], dtype='float64')
         for dateInd in range(len(self.rts.index[1:])):
-            corrDT = pd.DataFrame(list(zip(self.factorRank[dateInd],self.rts[dateInd+1]))).dropna()
+            if self.tradePoint == 'close':
+                corrDT = pd.DataFrame(list(zip(self.factorRank[dateInd],self.rts[dateInd+1]))).dropna()
+            elif self.tradePoint == 'open':
+                corrDT = pd.DataFrame(list(zip(self.factorRank[dateInd],self.rts[dateInd+2]))).dropna()
             corrMat = corrDT.corr()
             ICRank[dateInd] = 0 if corrMat.isna().iloc[0,1] else corrMat.iloc[0,1]
         self.rankIC = ICRank
@@ -147,15 +158,17 @@ class SingleFactorBacktest(object):
     def generateLongShortPosition(self, positionPct, turnoverLimit):
         positionStockNum = (self.factorRank.notnull().sum(axis=1) * positionPct).astype(int)
         upperRank, lowerRank = self.generateUpperLowerRank(positionStockNum)
-        # 因子载荷高的个股组成upperPosition，因子载荷低的个股组成lowerPosition
+
         upperPosition = self.factorRank.sub(upperRank, axis=0) >= 0
         lowerPosition = self.factorRank.sub(lowerRank, axis=0) <= 0
+        # 因子载荷与未来收益率成正比时，因子载荷高的个股组成upperPosition，因子载荷低的个股组成lowerPosition
         if self.factorMode == 1:
             self.longPosition = upperPosition
             self.shortPosition = lowerPosition
         else:
             self.longPosition = lowerPosition
             self.shortPosition = upperPosition
+
     def reduceTurnover(self, positionStockNum, turnoverLimit):
         timestampList = self.factorRank.index.tolist()
         oldLongPosition = self.longPosition.iloc[0].copy()
@@ -203,18 +216,25 @@ class SingleFactorBacktest(object):
                 self.shortPosition.iloc[timestampIdx] = newShortPosition
             oldLongPosition = newLongPosition.copy()
             oldShortPosition = newShortPosition.copy()
+
     def generateUpperLowerRank(self, positionStockNum):
         upperRank = np.zeros(self.factorRank.shape[0])
         lowerRank = np.zeros(self.factorRank.shape[0])
         for dateIdx in range(self.factorRank.shape[0]):
+            # numOfRanks是在dateIdx时点，因子值非空的个股数目，如果为0则后续无法运行
             numOfRanks = self.factorRank.iloc[dateIdx].value_counts()
             numOfRanks = numOfRanks.reindex(index=numOfRanks.index.sort_values(ascending=False))
+            if len(numOfRanks) == 0:
+                upperRank[dateIdx] = np.NaN
+                lowerRank[dateIdx] = np.NaN
+                continue
             upperStopRankIdx = 0
             upperNum = numOfRanks.iloc[upperStopRankIdx]
             while (upperNum < positionStockNum[dateIdx]):
                 upperStopRankIdx += 1
                 upperNum += numOfRanks.iloc[upperStopRankIdx]
             upperRank[dateIdx] = numOfRanks.index[upperStopRankIdx]
+
             lowerStopRankIdx = -1
             lowerNum = numOfRanks.iloc[lowerStopRankIdx]
             while (lowerNum < positionStockNum[dateIdx]):
@@ -234,13 +254,17 @@ class SingleFactorBacktest(object):
         oldShortPosition = self.shortPosition.iloc[0]
         shortedPosition = pd.Series(data=np.full((self.shortPosition.shape[1],), False),
                                     index=self.shortPosition.columns)
-        for dateIdx in range(1,len(self.longPosition.shape[0])):
+        for dateIdx in range(1,self.longPosition.shape[0]):
             newLongPosition = self.longPosition.iloc[dateIdx]
             newShortPosition = self.shortPosition.iloc[dateIdx]
             longTurnoverPosition = oldLongPosition ^ newLongPosition
             shortTurnoverPosition = oldShortPosition ^ shortedPosition
-            longTurnover.iloc[dateIdx - 1] = longTurnoverPosition.sum() / oldLongPosition.sum()
-            shortTurnover.iloc[dateIdx - 1] = shortTurnoverPosition.sum() / oldShortPosition.sum()
+            if oldLongPosition.sum() == 0:
+                longTurnover.iloc[dateIdx - 1] = 1
+                shortTurnover.iloc[dateIdx - 1] = 1
+            else:
+                longTurnover.iloc[dateIdx - 1] = longTurnoverPosition.sum() / oldLongPosition.sum()
+                shortTurnover.iloc[dateIdx - 1] = shortTurnoverPosition.sum() / oldShortPosition.sum()
             longRts.iloc[dateIdx] = (((self.price.iloc[dateIdx] * (
                                     oldLongPosition - longTurnoverPosition * stampTaxRate)).sum() - (self.price.iloc[dateIdx - 1] * oldLongPosition).sum()) /
                                      ((self.price.iloc[dateIdx - 1] * oldLongPosition).sum() + (self.price.iloc[dateIdx] * longTurnoverPosition).sum() * stampTaxRate))
@@ -262,12 +286,16 @@ class SingleFactorBacktest(object):
                                    columns=['cumRts(%)', 'annualVol(%)', 'maxDrawdown(%)', 'winRate(%)', 'SharpeRatio'])
         longShortNetValue = (1 + self.longShortRts).cumprod()
         performance['cumRts(%)'] = round(100 * (longShortNetValue.iloc[-1] - 1), 2)
+        performance['annualRts(%)'] = round(100 * (longShortNetValue.iloc[-1]**(252/len(longShortNetValue)) - 1), 2)
         performance['annualVol(%)'] = round(100 * self.longShortRts.std() * ((237*250)**0.5), 2)
         expandingMaxNetValue = longShortNetValue.expanding().max()
         self.drawdown = longShortNetValue / expandingMaxNetValue - 1
         performance['maxDrawdown(%)'] = round(-100 * self.drawdown.min(), 2)
         performance['winRate(%)'] = round(100 * (self.longShortRts > 0).sum() / self.longShortRts.shape[0], 2)
         performance['SharpeRatio'] = round(self.longShortRts.mean() / self.longShortRts.std(), 4)
+        self.cumRts,self.annualVol,self.maxDrawdown = float(performance['cumRts(%)']),float(performance['annualVol(%)']),float(performance['maxDrawdown(%)'])
+        self.winRate,self.SharpeRatio = float(performance['winRate(%)']),float(performance['SharpeRatio'])
+        self.annualRts = float(performance['annualRts(%)'])
         performance.set_index(['cumRts(%)'], inplace=True)
         performance.index.name = None
         performance.columns.name = 'cumRts(%)'

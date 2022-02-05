@@ -34,7 +34,7 @@ class RF():
         for stockInd,stockName in tqdm(enumerate(BasicData.basicFactor['sharedInformation']['axis2Stock'])):
             for factorInd,key in enumerate(BasicData.basicFactor):
                 if key != 'sharedInformation':
-                    # 因子值归一化
+                    # 因子值归一化，前提是没有极端值
                     currStockAllTimeCurrFactorValue = BasicData.basicFactor[key]['factorMatrix'][:, stockInd].reshape((self.T, 1))
                     currStockAllTimeCurrFactorValue = (currStockAllTimeCurrFactorValue-min(currStockAllTimeCurrFactorValue))/(max(currStockAllTimeCurrFactorValue)-min(currStockAllTimeCurrFactorValue))
                     if factorInd == 0:

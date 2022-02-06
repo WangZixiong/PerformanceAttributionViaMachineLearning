@@ -49,9 +49,10 @@ with open(rootPath+'data\\pickleFactors_40factor_gtja191.pickle','rb') as file:
     dict_get = pickle.load(file)
 file.close()
 
-# 转化marketInfo文件中的开盘价信息
+# 转化marketInfo文件中的信息
 marketInfoDict = h5py.File(rootPath+'data\\marketInfo_securities_china.mat','r')
 pickleDict = {}
+maskingPickleDict = {}
 # 获取股票列表，由于股票代码是字符，在HDF5中存储方式为ASC码的形式，需要比较复杂的转换
 stockList = []
 stockCodeFileNameArray = marketInfoDict['aggregatedDataStruct']['stock']['description']['tickers']['windTicker'][0]
@@ -64,10 +65,27 @@ for ind in range(len(stockCodeFileNameArray)):
 # 获取时间列表，时间是数字，直接用.value读取即可
 timeList = list(marketInfoDict['aggregatedDataStruct']['sharedInformation']['allDates'].value[0])
 pickleDict['sharedInformation'] = {'axis1Time':timeList,'axis2Stock':stockList}
-# 获取于收盘价交易的个股收益,不知为何读入数据时发生了转置，为了保证列为时间序列，行为个股截面，转置回来
-openPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_open'].value.T
-pickleDict['OpenPrice'] = openPrice
 
-with open(rootPath+'data\\pickleMarketForwardOpenPrice.pickle','wb') as file:
+# 获取于个股的开盘价,不知为何读入数据时发生了转置，为了保证列为时间序列，行为个股截面，转置回来
+# openPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_open'].value.T
+# pickleDict['ForwardOpenPrice'] = openPrice
+# with open(rootPath+'data\\pickleMarketForwardOpenPrice.pickle','wb') as file:
+#     pickle.dump(pickleDict,file)
+# file.close()
+
+# 获取于收盘价交易的个股收益
+maskingPickleDict['sharedInformation'] = {'axis1Time':timeList,'axis2Stock':stockList}
+openPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_open'].value.T
+closePrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_close'].value.T
+highPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_high'].value.T
+lowPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_low'].value.T
+stTable = marketInfoDict['aggregatedDataStruct']['stock']['stTable'].value.T
+listDate = marketInfoDict['aggregatedDataStruct']['stock']['description']['tickers']['listDate'].value
+maskingPickleDict['ForwardOpenPrice'] = openPrice
+maskingPickleDict['ForwardClosePrice'] = closePrice
+maskingPickleDict['ForwardHighPrice'] = highPrice
+maskingPickleDict['stTable'] = stTable
+maskingPickleDict['listDate'] = listDate
+with open(rootPath+'data\\pickleMaskingMarketInfo.pickle','wb') as file:
     pickle.dump(pickleDict,file)
 file.close()

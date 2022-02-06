@@ -16,11 +16,12 @@ plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 class SingleFactorBacktest(object):
-    def __init__(self, factorName, factorExposure, price, tradePoint='close'):
+    def __init__(self, factorName, factorExposure, marketInfo, price, tradePoint='close'):
         # 因子名称，个股因子载荷，个股股价，交易时点，收益
         self.factorName = factorName
         # factorExposure默认一列为一只个股的不同时间载荷，一行为一个时点的不同个股载荷
         self.factorExposure = factorExposure
+        self.marketInfo = marketInfo
         # price格式为dataframe格式
         self.price = price
         self.tradePoint = tradePoint
@@ -28,6 +29,8 @@ class SingleFactorBacktest(object):
         self.rtsRank = self.rts.rank(method='dense', axis=1)
     def analyze(self, layerNum=10, positionPct=0.1, turnoverLimit=0.5):
         print('Start Backtest for %s' % self.factorName)
+        # 遮罩，剔除上市未满一年，ST，涨跌停板个股
+        self.masking()
         # 因子值排名，axis = 1即为以行为全样本集进行排名，axis = 0即为以列为全样本集进行排名
         self.factorRank = self.factorExposure.rank(axis=1, method='dense')
         # 分层组合回测
@@ -39,7 +42,9 @@ class SingleFactorBacktest(object):
         # 计算多空仓表现
         self.calcLongShortPerformance()
         # 计算多空仓位回测情况
-        self.longShortBacktest()
+        # self.longShortBacktest()
+        # 计算纯多仓位回测情况
+        self.pureLongBacktest()
     def groupBacktest(self,layerNum):
         print('Hierarchical Bakctest for %s' % self.factorName)
         # 计算分层个股的收益率
@@ -123,13 +128,13 @@ class SingleFactorBacktest(object):
             IC[dateInd] = 0 if corrMat.isna().iloc[0,1] else corrMat.iloc[0, 1]
         self.IC = IC
     def calcRankIC(self):
-        # 初始化IC序列，提前规定好了数值类型为float64，不知道是为什么
+        # 初始化IC序列，提前规定好了数值类型为float64
         ICRank = pd.Series(index=self.rts.index[1:], dtype='float64')
-        for dateInd in range(len(self.rts.index[1:])):
+        for dateInd in range(len(self.rts.index[2:])):
             if self.tradePoint == 'close':
-                corrDT = pd.DataFrame(list(zip(self.factorRank[dateInd],self.rts[dateInd+1]))).dropna()
+                corrDT = pd.DataFrame(list(zip(self.factorRank.iloc[dateInd],self.rts.iloc[dateInd+1]))).dropna()
             elif self.tradePoint == 'open':
-                corrDT = pd.DataFrame(list(zip(self.factorRank[dateInd],self.rts[dateInd+2]))).dropna()
+                corrDT = pd.DataFrame(list(zip(self.factorRank.iloc[dateInd],self.rts.iloc[dateInd+2]))).dropna()
             corrMat = corrDT.corr()
             ICRank[dateInd] = 0 if corrMat.isna().iloc[0,1] else corrMat.iloc[0,1]
         self.rankIC = ICRank
@@ -168,6 +173,7 @@ class SingleFactorBacktest(object):
         else:
             self.longPosition = lowerPosition
             self.shortPosition = upperPosition
+        # self.reduceTurnover(positionStockNum, turnoverLimit)
 
     def reduceTurnover(self, positionStockNum, turnoverLimit):
         timestampList = self.factorRank.index.tolist()
@@ -266,10 +272,13 @@ class SingleFactorBacktest(object):
                 longTurnover.iloc[dateIdx - 1] = longTurnoverPosition.sum() / oldLongPosition.sum()
                 shortTurnover.iloc[dateIdx - 1] = shortTurnoverPosition.sum() / oldShortPosition.sum()
             longRts.iloc[dateIdx] = (((self.price.iloc[dateIdx] * (
-                                    oldLongPosition - longTurnoverPosition * stampTaxRate)).sum() - (self.price.iloc[dateIdx - 1] * oldLongPosition).sum()) /
-                                     ((self.price.iloc[dateIdx - 1] * oldLongPosition).sum() + (self.price.iloc[dateIdx] * longTurnoverPosition).sum() * stampTaxRate))
+                        oldLongPosition - longTurnoverPosition * stampTaxRate)).sum() - (
+                                                  self.price.iloc[dateIdx - 1] * oldLongPosition).sum()) /
+                                     ((self.price.iloc[dateIdx - 1] * oldLongPosition).sum() + (
+                                                 self.price.iloc[dateIdx] * longTurnoverPosition).sum() * stampTaxRate))
             shortRts.iloc[dateIdx] = (((self.price.iloc[dateIdx - 1] * (
-                                    oldShortPosition - shortTurnoverPosition * stampTaxRate)).sum() - (self.price.iloc[dateIdx] * oldShortPosition).sum()) /
+                        oldShortPosition - shortTurnoverPosition * stampTaxRate)).sum() - (
+                                                   self.price.iloc[dateIdx] * oldShortPosition).sum()) /
                                       ((self.price.iloc[dateIdx] * oldShortPosition).sum() + (self.price.iloc[dateIdx - 1] * shortTurnoverPosition).sum() * stampTaxRate))
             shortedPosition = oldShortPosition
             oldLongPosition = newLongPosition
@@ -293,18 +302,47 @@ class SingleFactorBacktest(object):
         performance['maxDrawdown(%)'] = round(-100 * self.drawdown.min(), 2)
         performance['winRate(%)'] = round(100 * (self.longShortRts > 0).sum() / self.longShortRts.shape[0], 2)
         performance['SharpeRatio'] = round(self.longShortRts.mean() / self.longShortRts.std(), 4)
-        self.cumRts,self.annualVol,self.maxDrawdown = float(performance['cumRts(%)']),float(performance['annualVol(%)']),float(performance['maxDrawdown(%)'])
+
+        self.cumRts,self.maxDrawdown = float(performance['cumRts(%)']),float(performance['maxDrawdown(%)'])
         self.winRate,self.SharpeRatio = float(performance['winRate(%)']),float(performance['SharpeRatio'])
-        self.annualRts = float(performance['annualRts(%)'])
+        self.annualVol,self.annualRts = float(performance['annualVol(%)']),float(performance['annualRts(%)'])
+
         performance.set_index(['cumRts(%)'], inplace=True)
         performance.index.name = None
         performance.columns.name = 'cumRts(%)'
+        self.performance = performance
 
         self.plotRtsFigure()
         self.plotTurnover()
-
         print(performance)
+
+    def pureLongBacktest(self):
+        print('Pure Long Portfolio Backtest for %s' % self.factorName)
+        performance = pd.DataFrame(index=[0],
+                                   columns=['cumRts(%)', 'annualVol(%)', 'maxDrawdown(%)', 'winRate(%)', 'SharpeRatio'])
+        pureLongNetValue = (1 + self.longRts).cumprod()
+        performance['cumRts(%)'] = round(100 * (pureLongNetValue.iloc[-1] - 1), 2)
+        performance['annualRts(%)'] = round(100 * (pureLongNetValue.iloc[-1] ** (252 / len(pureLongNetValue)) - 1), 2)
+        performance['annualVol(%)'] = round(100 * self.longRts.std() * ((237 * 250) ** 0.5), 2)
+        expandingMaxNetValue = pureLongNetValue.expanding().max()
+        self.drawdown = pureLongNetValue / expandingMaxNetValue - 1
+        performance['maxDrawdown(%)'] = round(-100 * self.drawdown.min(), 2)
+        performance['winRate(%)'] = round(100 * (self.longRts > 0).sum() / self.longRts.shape[0], 2)
+        performance['SharpeRatio'] = round(self.longRts.mean() / self.longRts.std(), 4)
+
+
         self.performance = performance
+        self.cumRts, self.maxDrawdown = float(performance['cumRts(%)']),  float(performance['maxDrawdown(%)'])
+        self.annualVol,self.annualRts = float(performance['annualVol(%)']),float(performance['annualRts(%)'])
+        self.winRate, self.SharpeRatio = float(performance['winRate(%)']), float(performance['SharpeRatio'])
+
+        performance.set_index(['cumRts(%)'], inplace=True)
+        performance.index.name = None
+        performance.columns.name = 'cumRts(%)'
+        self.plotRtsFigure()
+        self.plotTurnover()
+        print(performance)
+
     def plotRtsFigure(self):
         fig, [ax1, ax2] = plt.subplots(2, 1, figsize=(16, 10))
         ax1.bar(self.longShortRts.index, 100 * self.longShortRts, color='red', label='single term long-short rts')

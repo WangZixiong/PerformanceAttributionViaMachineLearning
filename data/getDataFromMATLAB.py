@@ -84,8 +84,9 @@ listDate = marketInfoDict['aggregatedDataStruct']['stock']['description']['ticke
 maskingPickleDict['ForwardOpenPrice'] = openPrice
 maskingPickleDict['ForwardClosePrice'] = closePrice
 maskingPickleDict['ForwardHighPrice'] = highPrice
+maskingPickleDict['ForwardLowPrice'] = lowPrice
 maskingPickleDict['stTable'] = stTable
 maskingPickleDict['listDate'] = listDate
 with open(rootPath+'data\\pickleMaskingMarketInfo.pickle','wb') as file:
-    pickle.dump(pickleDict,file)
+    pickle.dump(maskingPickleDict,file)
 file.close()

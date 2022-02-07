@@ -16,12 +16,11 @@ plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 class SingleFactorBacktest(object):
-    def __init__(self, factorName, factorExposure, marketInfo, price, tradePoint='close'):
+    def __init__(self, factorName, factorExposure, price, tradePoint='close'):
         # 因子名称，个股因子载荷，个股股价，交易时点，收益
         self.factorName = factorName
         # factorExposure默认一列为一只个股的不同时间载荷，一行为一个时点的不同个股载荷
         self.factorExposure = factorExposure
-        self.marketInfo = marketInfo
         # price格式为dataframe格式
         self.price = price
         self.tradePoint = tradePoint
@@ -29,8 +28,6 @@ class SingleFactorBacktest(object):
         self.rtsRank = self.rts.rank(method='dense', axis=1)
     def analyze(self, layerNum=10, positionPct=0.1, turnoverLimit=0.5):
         print('Start Backtest for %s' % self.factorName)
-        # 遮罩，剔除上市未满一年，ST，涨跌停板个股
-        self.masking()
         # 因子值排名，axis = 1即为以行为全样本集进行排名，axis = 0即为以列为全样本集进行排名
         self.factorRank = self.factorExposure.rank(axis=1, method='dense')
         # 分层组合回测
@@ -279,7 +276,8 @@ class SingleFactorBacktest(object):
             shortRts.iloc[dateIdx] = (((self.price.iloc[dateIdx - 1] * (
                         oldShortPosition - shortTurnoverPosition * stampTaxRate)).sum() - (
                                                    self.price.iloc[dateIdx] * oldShortPosition).sum()) /
-                                      ((self.price.iloc[dateIdx] * oldShortPosition).sum() + (self.price.iloc[dateIdx - 1] * shortTurnoverPosition).sum() * stampTaxRate))
+                                      ((self.price.iloc[dateIdx] * oldShortPosition).sum() + (
+                                                self.price.iloc[dateIdx - 1] * shortTurnoverPosition).sum() * stampTaxRate))
             shortedPosition = oldShortPosition
             oldLongPosition = newLongPosition
             oldShortPosition = newShortPosition

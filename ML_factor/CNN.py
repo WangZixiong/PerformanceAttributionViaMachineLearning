@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 import torch.optim as opt
 
+
 class CNNModel(nn.Module):
     def __init__(self):
         super().__init__()
@@ -119,10 +120,14 @@ class CNN:
 
     def rolling_fit(self):
         self.initiate_models()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # device = torch.device("cpu")
         for r in range(math.ceil((self.Y.shape[1]-10-self.data_size)/self.step)):
-            print(f'Rolling: {r}')
+        # for r in range(2):
+            print(f'\n Rolling step: {r} ')
             X, Y = self.data_preparation(r)
             X = torch.Tensor(X)
+            X = torch.where(torch.isinf(X), torch.full_like(X, 0), X)
             Y = torch.Tensor(Y)
             X_test = X[:, -1, :, :].unsqueeze(1)
             Y_test = Y[:, -1].unsqueeze(1)
@@ -132,38 +137,67 @@ class CNN:
             train_dataset, val_dataset = torch.utils.data.random_split(dataset, [round(Y.shape[0]*0.8), round(Y.shape[0]*0.2)])
             train_loader = DataLoader(dataset=train_dataset, shuffle=True, batch_size=50)
             val_loader = DataLoader(dataset=val_dataset, shuffle=True, batch_size=50)
-            loss_func = nn.MSELoss()
-            best_score = list()
-            for model_id, model in enumerate(self.model_list):
-                optimizer = opt.Adam(model.parameters())
-                train_losses = list()
-                train_loss = 0
+            for i, model in enumerate(self.model_list):
+                model.to(device)
+                optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+                best_loss = 1e9
+                criterion = nn.MSELoss()
+                # for epoch in range(2):
                 for epoch in range(100):
-                    for b_id, (inputs, labels) in enumerate(train_loader):
+                    model.train()
+                    train_loss = list()
+                    for inputs, labels in train_loader:
+                        inputs, labels = inputs.to(device), labels.to(device)
                         outputs = model(inputs)
-                        loss = loss_func(outputs, labels)
                         optimizer.zero_grad()
+                        loss = criterion(outputs, labels)
                         loss.backward()
                         optimizer.step()
-                        train_loss += loss.item()
-                    train_losses.append(train_loss/(b_id+1))
-                    print(f'model{model_id} epoch:{epoch} loss:{train_losses[epoch]}')
-                    if epoch >= 3 and np.diff(train_losses[epoch-3:]).min() > 0:
-                        print('early stop!!!')
-                        continue
-                for b_id, (inputs, labels) in enumerate(val_loader):
-                    if b_id == 0:
-                        predictions = model(inputs)
-                        true_label = labels
-                    else:
-                        predictions += model(inputs)
-                        true_label += labels
-                val_loss = loss_func(predictions, true_label)
+                        train_loss.append(loss.item())
 
-                if model_id == 0:
-                    best_score.append((f'model{model_id}', val_loss))
-                else:
-                    best_score[r] = (f'model{model_id}', val_loss) if val_loss < best_score[r][1] else best_score[r]
+                    # model validation
+                    model.eval()
+                    valid_loss = list()
+                    for inputs, labels in val_loader:
+                        inputs, labels = inputs.to(device), labels.to(device)
+                        outputs = model(inputs)
+                        loss = criterion(outputs, labels)
+                        # valid_loss += loss.item()
+                        valid_loss.append(loss.item())
+
+                    print(f'Epoch {epoch} \t\t Training Loss: {np.nanmean(train_loss)} \t\t '
+                          f'Validation Loss: {np.nanmean(valid_loss)}')
+
+                    # set early stop
+                    if np.nanmean(valid_loss) < best_loss:
+                        best_loss = np.nanmean(valid_loss)
+                        es = 0
+                        # torch.save(model.state_dict(), "model_" + str(fold) + 'weight.pt')
+                    else:
+                        es += 1
+                        print("Counter {} of 3".format(es))
+                        if es > 2:
+                            print("Early stopping with best_loss: ", best_loss,
+                                  "and val_loss for this epoch: ", np.nanmean(valid_loss))
+                            continue
+
+                if i == 0:
+                    best_model, best_score = model, best_loss
+                elif best_score > best_loss:
+                    best_model, best_score = model, best_loss
+
+                pred = best_model(X_test.to(device))
+                test_loss = criterion(pred, Y_test)
+                print(f'Rolling:{r} Model:{i} Loss on test set:{test_loss}')
+
+            if r == 0:
+                predictions = pred.T
+            else:
+                predictions = torch.row_stack((predictions, pred.T))
+
+        return predictions
+
+
 
 
 

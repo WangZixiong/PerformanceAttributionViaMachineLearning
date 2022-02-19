@@ -7,4 +7,5 @@
 from ML_factor.CNN import CNN
 
 cnn = CNN()
-cnn.rolling_fit()
+res = cnn.rolling_fit()
+res

@@ -28,7 +28,7 @@ with open('./data/cleanData/cleanFactors_gtja191_211211.pkl', 'wb') as file:
 
 #%%
 # 整理CNN输入数据
-with open('./data/cleanData/cleanFactors_gtja191_211211.pkl', 'rb') as file:
+with open('./data/cleanData/cleanFactors_gtja191_20220204.pkl', 'rb') as file:
     cleanData = pickle.load(file)
 dates = pd.DataFrame(data['sharedInformation']['axis1Time'], columns=['timestamp'])
 dates['timestamp'] = (dates['timestamp']-719529) * 86400

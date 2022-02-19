@@ -7,4 +7,5 @@
 from ML_factor.KNN import KNN
 
 knn = KNN()
-knn.rolling_fit()
+res = knn.rolling_fit()
+res

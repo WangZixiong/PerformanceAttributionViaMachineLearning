@@ -18,8 +18,8 @@ class RF():
         super().__init__()
         self.T = len(BasicData.basicFactor['sharedInformation']['axis1Time'])
         self.N = len(BasicData.basicFactor['sharedInformation']['axis2Stock'])
-        self.rolling_step = 130
-        self.batch_size = 500
+        self.rolling_step = 1
+        self.batch_size = 100
         self.val_proportion = 0.2
     def get_tradedays(self):
         self.all_date = pd.DataFrame(BasicData.basicFactor['sharedInformation']['axis1Time'], columns=['date'])
@@ -32,10 +32,11 @@ class RF():
         # 提取单只个股在时间序列上的因子信息矩阵
         self.X = list(range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'])))
         for stockInd,stockName in tqdm(enumerate(BasicData.basicFactor['sharedInformation']['axis2Stock'])):
+            currStockAllTimeAllFactorValue = np.zeros([self.T - 2, 1])
             for factorInd,key in enumerate(BasicData.basicFactor):
                 if key != 'sharedInformation':
-                    # 因子值归一化
-                    currStockAllTimeCurrFactorValue = BasicData.basicFactor[key]['factorMatrix'][:, stockInd].reshape((self.T, 1))
+                    # 因子值归一化，前提是没有极端值
+                    currStockAllTimeCurrFactorValue = BasicData.basicFactor[key]['factorMatrix'][:-2, stockInd].reshape((self.T-2, 1))
                     currStockAllTimeCurrFactorValue = (currStockAllTimeCurrFactorValue-min(currStockAllTimeCurrFactorValue))/(max(currStockAllTimeCurrFactorValue)-min(currStockAllTimeCurrFactorValue))
                     if factorInd == 0:
                         currStockAllTimeAllFactorValue = currStockAllTimeCurrFactorValue
@@ -51,29 +52,34 @@ class RF():
         # 提取单只个股的收益率日序列复权值
         self.Y = list(range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'])))
         for stockInd,stock in tqdm(enumerate(BasicData.basicFactor['sharedInformation']['axis2Stock'])):
-            allTimeClosePriceDF = BasicData.basicMkt[BasicData.basicMkt['s_info_windcode'].isin([stock])]
-            allTimeClosePriceDF.sort_values(['trade_dt'],inplace = True)
-            allTimeClosePriceDF.set_index(allTimeClosePriceDF.trade_dt,inplace = True)
+            allTimeOpenPriceDF = BasicData.basicMkt[BasicData.basicMkt['s_info_windcode'].isin([stock])]
+            allTimeOpenPriceDF.sort_values(['trade_dt'],inplace = True)
+            allTimeOpenPriceDF.set_index(allTimeOpenPriceDF.trade_dt,inplace = True)
             # mapTimeClosePriceDF是以self.all_date为索引，2210个log收益率数据
-            mapTimeClosePriceDF = pd.DataFrame(index = self.all_date,columns = allTimeClosePriceDF.columns)
+            mapTimeOepnPriceDF = pd.DataFrame(index = self.all_date,columns = allTimeOpenPriceDF.columns)
             # filter把运算时间拉长了一倍，但可以解决因子的axis1Time和个股收盘价时间的对应问题
-            mapIndexList = list(filter(lambda x: x in self.all_date and x in allTimeClosePriceDF.trade_dt.tolist(),self.all_date))
-            mapTimeClosePriceDF.loc[mapIndexList,:] = allTimeClosePriceDF.loc[mapIndexList,:]
-            self.Y[stockInd] = np.log((mapTimeClosePriceDF.s_dq_close*mapTimeClosePriceDF.s_dq_adjfactor).astype(float)).diff().values
+            mapIndexList = list(filter(lambda x: x in self.all_date and x in allTimeOpenPriceDF.trade_dt.tolist(),self.all_date))
+            mapTimeOepnPriceDF.loc[mapIndexList,:] = allTimeOpenPriceDF.loc[mapIndexList,:]
+            # self.Y[stockInd] = np.log((mapTimeOepnPriceDF.s_dq_open*mapTimeOepnPriceDF.s_dq_adjfactor).astype(float)).diff().values
+            currStockOpenPrice = (mapTimeOepnPriceDF.s_dq_open * mapTimeOepnPriceDF.s_dq_adjfactor).astype(float)
+
+            # 按照当日因子值交易，是按照次日开盘价买入，第三天开盘价卖出，因此因子对应收益率取iloc[2:]，未来可能会出现X与Y对不齐的问题
+            self.Y[stockInd] = (currStockOpenPrice/currStockOpenPrice.shift(1) -1)
 
         self.Y = np.array(self.Y)
         with open(rootPath+r'\data\RFData_label.pkl', 'wb') as file:
             pickle.dump(self.Y, file)
 
     def data_preparation(self):
-        if os.path.exists(rootPath+r'\data\RFData_feature.pkl'):
-           self.X = pd.read_pickle(rootPath+r'\data\RFData_feature.pkl')
-        else:
-           self.X_preperation()
         if os.path.exists(rootPath + r'\data\RFData_label.pkl'):
             self.Y = pd.read_pickle(rootPath + r'\data\RFData_label.pkl')
         else:
             self.Y_preperation()
+        if os.path.exists(rootPath+r'\data\RFData_feature.pkl'):
+           self.X = pd.read_pickle(rootPath+r'\data\RFData_feature.pkl')
+        else:
+           self.X_preperation()
+
 
     def train_test_split_function(self,trainStartDateInd,trainEndDateInd,testStartDateInd,testEndDateInd):
         # 切片取数，整理为一维的输入输出
@@ -120,9 +126,10 @@ class RF():
         self.get_tradedays()
         model = RandomForestRegressor(criterion = 'mse',max_depth= 4)
         R2oosDF = pd.DataFrame()
-        for step in tqdm(range((len(self.all_date)-self.batch_size)//self.rolling_step+1)):
+        factorExposure = pd.DataFrame()
+        for step in tqdm(range((len(self.all_date)-self.batch_size)//self.rolling_step)):
             trainStartDateInd, trainEndDateInd = step*self.rolling_step,self.batch_size+step*self.rolling_step
-            testStartDateInd, testEndDateInd = self.batch_size+step * self.rolling_step, min(self.batch_size + (step+1) * self.rolling_step,self.T)
+            testStartDateInd, testEndDateInd = self.batch_size+step * self.rolling_step, min(self.batch_size + (step+1) * self.rolling_step,self.T-2)
 
             train_test_dataDict =self.train_test_split_function(trainStartDateInd, trainEndDateInd, testStartDateInd, testEndDateInd)
             X_train,y_train,X_test,y_test = train_test_dataDict['X_train'],train_test_dataDict['y_train'],\
@@ -131,7 +138,10 @@ class RF():
             model.fit(X_train,y_train)
             y_predict = model.predict(X_test)
             mse = metrics.mean_squared_error(y_test,y_predict)
+            # 因为是每日预测，预测收益率作为因子载荷
+            factorExposure.loc[testStartDateInd,:] = y_predict
+
             R2oos = 1-mse/metrics.mean_squared_error(y_test,np.zeros(np.shape(y_test)[0]))
-            print("step={}, startDate = {},endDate = {}, Roos2={}".format(step, self.all_date[trainStartDateInd], self.all_date[testStartDateInd],R2oos))
+            print("step={}, startDate = {},endDate = {}, R2oos={}".format(step, self.all_date[trainStartDateInd], self.all_date[testStartDateInd],R2oos))
             R2oosDF.loc[self.all_date[testStartDateInd],self.all_date[testEndDateInd]] = float(format(R2oos,'.2g'))
         return R2oosDF

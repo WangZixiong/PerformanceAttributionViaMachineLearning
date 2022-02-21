@@ -17,11 +17,11 @@ for key in tqdm(BasicData.basicFactor.keys()):
         narray=BasicData.basicFactor[key]['factorMatrix']
         factor_dict={}
         factor_dict['nan_perc']=narray[np.isnan(narray)].shape[0]/narray.size
-        if factor_dict['nan_perc']<0.99:
-            factor_dict['max']=narray[~np.isnan(narray)].max()
-            factor_dict['min']=narray[~np.isnan(narray)].min()
-            for perc_n in [0.99,0.98,0.97,0.04,0.03,0.02,0.01]:
-                factor_dict['perc'+str(perc_n)]=np.percentile(narray[~np.isnan(narray)],perc_n*100)
+        factor_dict['max']=narray[~np.isnan(narray)].max()
+        factor_dict['min']=narray[~np.isnan(narray)].min()
+        factor_dict['median'] = np.median(narray[~np.isnan(narray)])
+        for perc_n in [0.75,0.5,0.25]:
+            factor_dict['perc'+str(perc_n)]=np.percentile(narray[~np.isnan(narray)],perc_n*100)
         df_desc=pd.DataFrame(narray).describe()
         nan_stock_id=np.where(df_desc.loc['count']==0)
         factor_dict['nan_stock']={'数量':[nan_stock_id[0].shape[0],'编号按照顺序从0开始'],'id':nan_stock_id}

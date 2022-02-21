@@ -10,7 +10,9 @@ import os
 print(os.path.abspath('.'))
 
 c = linearregre(normalize=2)
-c.data_preparation()
+# c.data_preparation()
+c.data_preparation(ini=True,nums='all')
+# c.data_preparation(ini=False)
 model,predict_y = c.rolling_fit()
 # model
 
@@ -19,3 +21,11 @@ model,predict_y = c.rolling_fit()
 # c.data_preparation()
 # model = c.rolling_fit()
 # model
+#%%
+import pickle
+import os
+
+with open('./data/LR_model_result.pickle', 'wb') as file:
+    pickle.dump(model, file)
+file.close()
+# pd.to_pickle('')

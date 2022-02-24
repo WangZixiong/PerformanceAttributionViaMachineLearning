@@ -21,6 +21,7 @@ from scipy.stats.mstats import winsorize
 from sklearn import preprocessing
 import copy
 
+
 class LinearModel(torch.nn.Module):  # 从Module继承
     # 必须实现以下两个函数
     # 初始化
@@ -60,17 +61,17 @@ class linearregre(LinearModel):
         self.all_date = [int(d.replace('-', '')) for d in self.all_date]
         self.all_date.sort()
 
-    def X_prepare(self,nums=100):
+    def X_prepare(self, nums=100):
         print('X_prepare')
         # self.X = list(range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'])))
         self.X = list(
             range(len(BasicData.basicFactor['sharedInformation']['axis2Stock'][:nums])))
         for n, s in enumerate(BasicData.basicFactor['sharedInformation']['axis2Stock'][:nums]):
-            ini_flag=False
+            ini_flag = False
             for k, (key, value) in enumerate(BasicData.basicFactor.items()):
                 if key != 'sharedInformation':
                     if ini_flag == False:
-                        ini_flag=True
+                        ini_flag = True
                         s_factor = value['factorMatrix'][:,
                                                          n].reshape((self.T, 1))
                     else:
@@ -80,14 +81,14 @@ class linearregre(LinearModel):
             s_X = list(range(self.T - 10))
             for d in range(self.lookback_num, self.T):
                 # s_X[d-10] = s_factor[d-self.lookback_num: d]
-                s_X[d-10] = s_factor[d] #不设置回看期
+                s_X[d-10] = s_factor[d]  # 不设置回看期
             self.X[n] = s_X
-            print(n)
+            print(n, end=',')
         # self.X = np.array(self.X)
         with open('./data/LRData_feature.pkl', 'wb') as file:
             pickle.dump(self.X, file)
 
-    def Y_prepare(self,nums=100):
+    def Y_prepare(self, nums=100):
         self.get_tradedays()
         """
         matlab时间戳 转成 python日期的方法，例：734508
@@ -97,31 +98,34 @@ class linearregre(LinearModel):
         # 并表
         # self.all_stock = BasicData.basicFactor['sharedInformation']['axis2Stock']
         self.all_stock = BasicData.basicFactor['sharedInformation']['axis2Stock'][:2]
-        self.all_return = pd.DataFrame([s for s in self.all_stock for i in range(len(self.all_date))], index=self.all_date*len(self.all_stock), columns=['s_info_windcode'])
-        self.all_return.set_index([self.all_return.index, self.all_return.s_info_windcode], inplace=True)
+        self.all_return = pd.DataFrame([s for s in self.all_stock for i in range(len(
+            self.all_date))], index=self.all_date*len(self.all_stock), columns=['s_info_windcode'])
+        self.all_return.set_index(
+            [self.all_return.index, self.all_return.s_info_windcode], inplace=True)
 
         all_return = BasicData.basicMkt[['s_info_windcode', 'trade_dt']].copy()
         all_return['return'] = np.log(BasicData.basicMkt.s_dq_close)
         all_return.sort_values(['s_info_windcode', 'trade_dt'], inplace=True)
-        all_return.loc[:, 'return'] = all_return.groupby('s_info_windcode')['return'].diff()
+        all_return.loc[:, 'return'] = all_return.groupby('s_info_windcode')[
+            'return'].diff()
         all_return.set_index(['trade_dt', 's_info_windcode'], inplace=True)
 
         self.all_return['return'] = all_return['return']
         self.all_return = self.all_return.droplevel(1)
-        Y=all_return.unstack('trade_dt').droplevel(None,axis=1)
-        self.Y=Y[self.all_date[self.lookback_num:]].iloc[:nums,:]
-        
+        Y = all_return.unstack('trade_dt').droplevel(None, axis=1)
+        self.Y = Y[self.all_date[self.lookback_num:]].iloc[:nums, :]
+
         self.Y = np.array(self.Y)
         with open('./data/LRData_label.pkl', 'wb') as file:
             pickle.dump(self.Y, file)
 
-    def data_preparation(self,ini,nums):
-        if os.path.exists('./data/CNNData_feature.pkl') and ini!=True:
+    def data_preparation(self, ini, nums):
+        if os.path.exists('./data/LRData_feature.pkl') and ini != True:
             self.X = pd.read_pickle('./data/LRData_feature.pkl')
             self.Y = pd.read_pickle('./data/LRData_label.pkl')
         else:
-            if nums=='all':
-                nums=self.N
+            if nums == 'all':
+                nums = self.N
             self.X_prepare(nums=nums)
             self.Y_prepare(nums=nums)
             print('data prepare finished')
@@ -139,7 +143,7 @@ class linearregre(LinearModel):
             return 0
 
     def rolling_fit(self):
-        def prepare(array,loca):
+        def prepare(array, loca):
             non_array = array[(~np.isnan(array)) & (~np.isinf(array))]
             if non_array.shape[0] != 0:
                 posinf = np.percentile(non_array, 95)
@@ -159,42 +163,53 @@ class linearregre(LinearModel):
                     process_array[np.isnan(process_array)] = 0
                     return process_array
             else:
-                print(f'!!!!!empty factor located in [{loca[0]},{loca[1]}]!!!!')
-                return np.empty(array.shape)
+                print(
+                    f'!!!!!empty factor located in [{loca[0]},{loca[1]}]!!!!')
+                return np.zeros(array.shape)
         self.X = np.array(self.X)
         self.X[np.isinf(self.X)] = 0
         self.Y[np.isinf(self.Y)] = 0
         self.X = torch.Tensor(np.array(self.X))
         self.Y = torch.Tensor(np.array(self.Y))
-        x_slice = self.X.numpy()
-        models_info=copy.deepcopy(self.__dict__)
-        for keys in ['X','Y']:
-            res=models_info.pop(keys)
-        model_result = {'model_info':models_info}
-        for i in range(x_slice.shape[0]):
-            for j in range(x_slice.shape[2]):
-                x_slice[i, :, j] = prepare(x_slice[i, :, j],[i,j])
+        x_numpy = self.X.numpy()
+        models_info = copy.deepcopy(self.__dict__)
+        for keys in ['X', 'Y']:
+            res = models_info.pop(keys)
+        model_result = {'model_info': models_info}
+        x_slice = x_numpy.copy()
+        for i in range(x_numpy.shape[0]):
+            for j in range(x_numpy.shape[2]):
+                x_slice[i, :, j] = prepare(x_numpy[i, :, j], [i, j])
+        if np.isnan(x_slice.max()):
+            print('x_train data nan error!')
+            return x_slice, 0
         x_slice = torch.Tensor(x_slice)
         predict_y = [np.zeros(self.Y[:, 0:self.batch_size].T.shape)]
         for step in range((self.Y.shape[1]-self.batch_size)//self.rolling_step):
             print(step)
+            # if step <= 168:
+            #     continue
             x_train = x_slice[:, self.rolling_step*step:self.batch_size +
                               self.rolling_step*step, :].flatten(0, 1)
             y_train = self.Y[:, self.rolling_step *
                              step:self.batch_size+self.rolling_step*step].flatten(0, 1)
-            x_predict = x_slice[:, self.batch_size+self.rolling_step *
-                                step:self.batch_size+self.rolling_step*(step+1), :].flatten(0, 1)
+            x_predict = x_slice[:, 1+self.batch_size+self.rolling_step *
+                                step:1+self.batch_size+self.rolling_step*(step+1), :].flatten(0, 1)
 
-            y_predict = self.Y[:, self.batch_size+self.rolling_step *
-                               step:self.batch_size+self.rolling_step*(step+1)].flatten(0, 1)
+            y_predict = self.Y[:, 1+self.batch_size+self.rolling_step *
+                               step:1+self.batch_size+self.rolling_step*(step+1)].flatten(0, 1)
             # 补充nan为0
             y_train = torch.Tensor(np.nan_to_num(y_train.numpy()))
-            y_predict=torch.Tensor(np.nan_to_num(y_predict.numpy()))
+            y_predict = torch.Tensor(np.nan_to_num(y_predict.numpy()))
             if np.isnan(x_train.max()):
                 print('x_train data nan error!')
-            lambda_ = self.cv_hyper_param(
-                x_train.detach().numpy(), y_train.detach().numpy())
-
+                return x_train, y_predict
+            try:
+                lambda_ = self.cv_hyper_param(
+                    x_train.detach().numpy(), y_train.detach().numpy())
+            except ValueError:
+                print(x_train.detach().numpy().max())
+                return x_train.detach().numpy(), y_train.detach().numpy()
             # 基于最佳的lambda值建模
             if self.normalize == 1:
                 lasso = Lasso(alpha=lambda_, normalize=True, max_iter=10000)
@@ -207,13 +222,15 @@ class linearregre(LinearModel):
             # 返回LASSO回归的系数
             res = lasso.intercept_
             lasso_predict = lasso.predict(x_predict.numpy())
-            ic = np.corrcoef(lasso_predict, y_predict.numpy())[1,0]
+            ic = np.corrcoef(lasso_predict, y_predict.numpy())[1, 0]
             mse = mean_squared_error(y_predict.numpy(), lasso_predict)
             r2 = r2_score(y_predict.numpy(), lasso_predict)
-            predict_y.append(lasso_predict.reshape(
-                self.rolling_step, x_slice.shape[0]))
-            model_result[step] = {'ic': ic, 'mse': mse, 'r2': r2, 'coef': lasso.coef_, 'inter': res,
-                                  "y_predict": lasso_predict.reshape(self.rolling_step, x_slice.shape[0]),
+            pred_y=lasso_predict.reshape(int(lasso_predict.shape[0]/x_slice.shape[0]), x_slice.shape[0])
+            predict_y.append(pred_y)
+            model_result[step] = {'train_period': (self.rolling_step*step, self.batch_size+self.rolling_step*step),
+                                  'predict_period': (1+self.batch_size+self.rolling_step * step, 1+self.batch_size+self.rolling_step*(step+1)),
+                                  'ic': ic, 'mse': mse, 'r2': r2, 'coef': lasso.coef_, 'inter': res,
+                                  "y_predict": pred_y,
                                   }
             print('step={},ic={},mse={},r2={}'.format(step, ic, mse, r2))
         predict_y = np.concatenate(predict_y)

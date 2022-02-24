@@ -4,14 +4,14 @@
 @File    : test_MLfactor.py
 @Software: PyCharm
 """
-from ML_factor.CNN import CNN
+# from ML_factor.CNN import CNN
 from ML_factor.linear_regre_v2 import linearregre
 import os
 print(os.path.abspath('.'))
 
 c = linearregre(normalize=2)
 # c.data_preparation()
-c.data_preparation(ini=True,nums='all')
+c.data_preparation(ini=False,nums='all')
 # c.data_preparation(ini=False)
 model,predict_y = c.rolling_fit()
 # model
@@ -25,7 +25,7 @@ model,predict_y = c.rolling_fit()
 import pickle
 import os
 
-with open('./data/LR_model_result.pickle', 'wb') as file:
+with open('./ML_factor/result/LR_model_result.pickle', 'wb') as file:
     pickle.dump(model, file)
 file.close()
 # pd.to_pickle('')

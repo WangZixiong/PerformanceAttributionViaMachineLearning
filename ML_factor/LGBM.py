@@ -50,11 +50,12 @@ class LGBM():
         self.all_date = [int(d.replace('-', '')) for d in self.all_date]
         self.all_date.sort()
     def X_preperation(self):
-        # self.X = np.zeros(len(BasicData.basicFactor['sharedInformation']['axis1Time']))
-        self.X = list(np.zeros([len(BasicData.basicFactor)-1,1]))
+        self.X = []
         stockNum = len(BasicData.basicFactor['sharedInformation']['axis2Stock'])
+        factorNum = 0
         for factorInd,key in tqdm(enumerate(BasicData.basicFactor)):
             if key != 'sharedInformation':
+                factorNum += 1
                 # 0228因为要预测T+2时刻的收益率，因此时间维度提取-2之前的因子值即可
                 currFactorAllTimeAllStockValue = BasicData.basicFactor[key][:-2, :]
                 # 判断因子值是否存在大量缺省
@@ -72,8 +73,15 @@ class LGBM():
                     AllFactorAllStockAllTimeValue = currFactorAllTimeAllStockValue
                 else:
                     AllFactorAllStockAllTimeValue = np.hstack((AllFactorAllStockAllTimeValue, currFactorAllTimeAllStockValue))
-        self.X = AllFactorAllStockAllTimeValue.reshape(np.shape(AllFactorAllStockAllTimeValue)[0], stockNum,
-                                                       int(np.shape(AllFactorAllStockAllTimeValue)[1] / stockNum))
+        for timeInd,time in tqdm(enumerate(range(np.shape(AllFactorAllStockAllTimeValue)[0]))):
+            currTimeAllStocksAllFactor = AllFactorAllStockAllTimeValue[timeInd,:]
+            currTimeFactorMatrix = np.zeros([stockNum,factorNum])
+            for factorInd in range(factorNum):
+                currTimeFactorMatrix[:,factorInd] = currTimeAllStocksAllFactor[factorInd*stockNum:(factorInd+1)*stockNum]
+            self.X.append(currTimeFactorMatrix)
+            # self.X[timeInd] = currTimeFactorMatrix
+        # self.X = AllFactorAllStockAllTimeValue.reshape(np.shape(AllFactorAllStockAllTimeValue)[0], stockNum,
+        #                                                int(np.shape(AllFactorAllStockAllTimeValue)[1] / stockNum))
         # self.X 三维数组，[时间，个股数，因子数]
         self.X = np.array(self.X)
         with open(rootPath+r'data\LGBMData\LGBMData_feature.pkl', 'wb') as file:

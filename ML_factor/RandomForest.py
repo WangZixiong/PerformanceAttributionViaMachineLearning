@@ -13,7 +13,7 @@ import pickle
 import os
 from tqdm import tqdm
 from data.basicData import BasicData
-rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
+# rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
 class RF():
     def __init__(self,tradeType):
         super().__init__()
@@ -68,7 +68,7 @@ class RF():
             self.X.append(currTimeFactorMatrix)
                 # self.X 三维数组，[时间，个股数，因子数]
         self.X = np.array(self.X)
-        with open(rootPath+r'\data\RFData\RFData_feature.pkl', 'wb') as file:
+        with open(BasicData.rootPath+r'\data\RFData\RFData_feature.pkl', 'wb') as file:
             pickle.dump(self.X, file)
     def Y_preperation(self,nums = 300):
         self.get_tradedays()
@@ -93,17 +93,17 @@ class RF():
         self.Y = np.array(self.Y).T
         # 按照当日因子值交易，是按照次日开盘价买入，第三天开盘价卖出，因此因子对应收益率取[2:]，未来可能会出现X与Y对不齐的问题
         self.Y = self.Y[2:, :]
-        with open(rootPath+r'\data\RFData\RFData_label.pkl', 'wb') as file:
+        with open(BasicData.rootPath+r'\data\RFData\RFData_label.pkl', 'wb') as file:
             pickle.dump(self.Y, file)
 
     def data_preparation(self):
         print('start data preperation')
-        if os.path.exists(rootPath + r'\data\RFData\RFData_label.pkl'):
-            self.Y = pd.read_pickle(rootPath + r'\data\RFData\RFData_label.pkl')
+        if os.path.exists(BasicData.rootPath + r'\data\RFData\RFData_label.pkl'):
+            self.Y = pd.read_pickle(BasicData.rootPath + r'\data\RFData\RFData_label.pkl')
         else:
             self.Y_preperation()
-        if os.path.exists(rootPath+r'\data\RFData\RFData_feature.pkl'):
-           self.X = pd.read_pickle(rootPath+r'\data\RFData\RFData_feature.pkl')
+        if os.path.exists(BasicData.rootPath+r'\data\RFData\RFData_feature.pkl'):
+           self.X = pd.read_pickle(BasicData.rootPath+r'\data\RFData\RFData_feature.pkl')
         else:
            self.X_preperation()
         # 树模型需要非空的输入输出，需要将NaN的样本feature和label填充为0

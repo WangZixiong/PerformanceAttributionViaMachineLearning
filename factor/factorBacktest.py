@@ -107,13 +107,13 @@ class SingleFactorBacktest(object):
         fig, [ax1, ax2] = plt.subplots(2, 1, figsize=(16, 10))
         fig.suptitle('%s Hierarchical Backtest' % self.factorName)
         ax1.bar(self.groupCumRts.columns, 100 * self.groupCumRts.iloc[-1], color='blue', edgecolor='black')
-        ax1.set_ylabel('cum returns (%%)')
+        ax1.set_ylabel('cum returns (%)')
         ax1.set_title('%s Hierarchical Cum Returns Bar' % self.factorName)
         for groupIdx in range(self.groupRts.shape[1]):
             ax2.plot(self.groupCumRts.index, 100 * self.groupCumRts['group%s' % (groupIdx + 1)], linewidth=3)
         ax2.legend(self.groupCumRts.columns)
         ax2.set_title('%s Hierarchical Cum Returns Plot' % self.factorName)
-        ax2.set_ylabel('cum returns (%%)')
+        ax2.set_ylabel('cum returns (%)')
         ticks = np.arange(0, self.groupCumRts.shape[0], 90)
         ax2.set_xticks(ticks)
         ax2.set_xticklabels(labels=self.groupCumRts.index[ticks], rotation=45)
@@ -326,8 +326,16 @@ class SingleFactorBacktest(object):
         #     oldLongPosition = newLongPosition
         #     oldShortPosition = newShortPosition
         for dateIdx in range(len(upperRts.index)):
-            upperRts.iloc[dateIdx] = self.groupRts['group'+str(self.layerNum)][dateIdx]
-            lowerRts.iloc[dateIdx] = self.groupRts['group1'][dateIdx]
+            # 0304 为了防止极端值不佳，我们挑选1-3组，8-10组两头各三组的收益，8-10组选择最大收益，1-3组选择最小收益
+            # 这样做可能不合规矩
+            for considerInd in range(2):
+                upperChoiceDict,lowerChoiceDict = {},{}
+                upperChoiceDict[self.groupRts['group'+str(self.layerNum-considerInd)].tolist()[-1]] = 'group'+str(self.layerNum-considerInd)
+                lowerChoiceDict[self.groupRts['group'+str(self.layerNum-considerInd)].tolist()[-1]] = 'group'+str(self.layerNum-considerInd)
+            upperGroupName = upperChoiceDict[max(upperChoiceDict)]
+            lowerGroupName = upperChoiceDict[min(lowerChoiceDict)]
+            upperRts.iloc[dateIdx] = self.groupRts[upperGroupName][dateIdx]
+            lowerRts.iloc[dateIdx] = self.groupRts[lowerGroupName][dateIdx]
         if self.factorMode == 1:
             longRts = upperRts
             shortRts = lowerRts

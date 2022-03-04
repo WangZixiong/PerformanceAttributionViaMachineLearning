@@ -9,17 +9,18 @@ import pandas as pd
 from tqdm import tqdm
 from factor.factorBacktest import SingleFactorBacktest
 rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
-factorExposure = pd.read_csv(rootPath+'data\\RF因子载荷矩阵.csv',index_col = 0)
+factorExposure = pd.read_csv(rootPath+'factor\\LGBM因子载荷矩阵.csv',index_col = 0)
+# factorExposure = pd.read_pickle(rootPath+'factor\\PLS_stk_loading.pkl')
 #### 中性化处理
 medianFactorExposure = pd.DataFrame(columns = factorExposure.columns)
 medianArray = np.array(factorExposure.median(axis = 1)).reshape([len(factorExposure),1])
 medianMatrix = np.repeat(medianArray,len(factorExposure.columns),axis = 1)
-medianizedFactorExposure = pd.DataFrame(abs(np.array(factorExposure) - medianMatrix))
+medianizedFactorExposure = pd.DataFrame(np.array(factorExposure) - medianMatrix)
 
 openPriceInfo = pd.read_pickle(rootPath+'data\\pickleMaskingOpenPrice.pickle')
 openPrice = pd.DataFrame(openPriceInfo['openPrice'])
 
-factorName = 'RandomForest Factor'
+factorName = 'PLS Factor'
 # 这里要求tradeDateList和openPrice的index的长度是一致的,格式为timestamp
 tradeDateList = openPrice.index.tolist()
 backtest = SingleFactorBacktest(factorName, medianizedFactorExposure, openPrice, tradeDateList, 'open')
@@ -39,4 +40,4 @@ backtestResult.loc[factorName, 'maxDrawdown'] = backtest.maxDrawdown
 backtestResult.loc[factorName, 'winRate'] = backtest.winRate
 backtestResult.loc[factorName, 'SharpeRatio'] = backtest.SharpeRatio
 
-backtestResult.to_csv(rootPath+'factor\\随机森林合成因子回测结果0216.csv',encoding = 'utf_8_sig')
+backtestResult.to_csv(rootPath+'backtest\\PLS合成因子回测结果0304.csv',encoding = 'utf_8_sig')

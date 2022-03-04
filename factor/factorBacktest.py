@@ -394,12 +394,15 @@ class SingleFactorBacktest(object):
             annualPerformance.loc[year,'cumRts(%)'] = round(100 * (pureLongNetValue.iloc[-1] - 1), 2)
             annualPerformance.loc[year,'annualRts(%)'] = round(100 * (pureLongNetValue.iloc[-1] ** (252 / len(pureLongNetValue)) - 1), 2)
             annualPerformance.loc[year,'annualVol(%)'] = round(100 * self.longRts[currYearDates].std() * (250**0.5), 2)
-            expandingMaxNetValue = pureLongNetValue.expanding().max()
-            self.drawdown = pureLongNetValue / expandingMaxNetValue - 1
-            annualPerformance.loc[year,'maxDrawdown(%)'] = round(-100 * self.drawdown.min(), 2)
-            annualPerformance.loc[year,'winRate(%)'] = round(100 * (self.longRts[currYearDates] > 0).sum() / self.longRts[currYearDates].shape[0], 2)
-            annualPerformance.loc[year, 'turnover'] = round(self.longTurnover[currYearDates].mean(),2)
-            annualPerformance.loc[year,'SharpeRatio'] = round(self.longRts[currYearDates].mean() / self.longRts[currYearDates].std(), 4)
+            if annualPerformance.loc[year,'annualVol(%)'] == 0:
+                print('本年因子均在训练，全年因子载荷均为0')
+            else:
+                expandingMaxNetValue = pureLongNetValue.expanding().max()
+                self.drawdown = pureLongNetValue / expandingMaxNetValue - 1
+                annualPerformance.loc[year,'maxDrawdown(%)'] = round(-100 * self.drawdown.min(), 2)
+                annualPerformance.loc[year,'winRate(%)'] = round(100 * (self.longRts[currYearDates] > 0).sum() / self.longRts[currYearDates].shape[0], 2)
+                annualPerformance.loc[year, 'turnover'] = round(self.longTurnover[currYearDates].mean(),2)
+                annualPerformance.loc[year,'SharpeRatio'] = round(self.longRts[currYearDates].mean() / self.longRts[currYearDates].std(), 4)
         # annualPerformance.to_csv(rootPath+'factor\\'+self.factorName+'annualPerformance.csv',encoding = 'utf_8_sig')
         print(annualPerformance)
         pureLongNetValue = (1 + self.longRts).cumprod()

@@ -7,12 +7,14 @@
 import torch
 import itertools
 import math
+import time
 import pandas as pd
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 import torch.optim as opt
+import pickle
 
 
 class CNNModel(nn.Module):
@@ -33,7 +35,7 @@ class CNNModel(nn.Module):
         )
 
         self.fc_0 = nn.Sequential(
-            nn.Linear(64*10*153, 64),
+            nn.Linear(64*10*174, 64),
         )
         self.fc = nn.Sequential(
             nn.Linear(64, 64),
@@ -60,11 +62,12 @@ class CNNModel(nn.Module):
         out = self.output(out)
         return out
 
+
 class CNN:
     def __init__(self):
         super().__init__()
-        self.step = 1
-        self.data_size = 201
+        self.step = 10
+        self.data_size = 200 + self.step
         self.val_proportion = 0.2
         self.group_info = pd.read_pickle('./data/cnnData/group_info.pkl')
         # prediction
@@ -80,7 +83,7 @@ class CNN:
         if kwargs.get('val_proportion') is not None:
             self.val_proportion = kwargs.get('val_proportion')
 
-    def initiate_models(self, conv_range=4, fc_range=3):
+    def initiate_models(self, conv_range=2, fc_range=2):
         self.model_list = list()
         para_list = list(itertools.product(range(1, conv_range), range(1, fc_range)))
         for para in para_list:
@@ -89,7 +92,7 @@ class CNN:
             self.model_list.append(model)
 
     def __data_load(self, group):
-        data = pd.read_pickle(f'./data/cnnData/{group}_cnnFactors_gtja191_211211')
+        data = pd.read_pickle(f'./data/cnnData/{group}_cnnFactors_gtja191_20220204')
         return data
 
     def data_preparation(self, r):
@@ -123,79 +126,79 @@ class CNN:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # device = torch.device("cpu")
         for r in range(math.ceil((self.Y.shape[1]-10-self.data_size)/self.step)):
-        # for r in range(2):
             print(f'\n Rolling step: {r} ')
             X, Y = self.data_preparation(r)
             X = torch.Tensor(X)
             X = torch.where(torch.isinf(X), torch.full_like(X, 0), X)
+            X = torch.where(torch.isnan(X), torch.full_like(X, 0), X)
             Y = torch.Tensor(Y)
-            X_test = X[:, -1, :, :].unsqueeze(1)
-            Y_test = Y[:, -1].unsqueeze(1)
-            X = X[:, :-1, :, :].reshape(X.shape[0]*(X.shape[1]-1), 1, X.shape[2], X.shape[3])
-            Y = Y[:, :-1].reshape(Y.shape[0]*(Y.shape[1]-1), 1)
+            X_test = X[:, -self.step:, :, :].flatten(0, 1).unsqueeze(1)
+            Y_test = Y[:, -self.step:].flatten().unsqueeze(1)
+            X = X[:, :-self.step, :, :].flatten(0, 1).unsqueeze(1)
+            Y = Y[:, :-self.step].flatten().unsqueeze(1)
             dataset = TensorDataset(X, Y)
             train_dataset, val_dataset = torch.utils.data.random_split(dataset, [round(Y.shape[0]*0.8), round(Y.shape[0]*0.2)])
-            train_loader = DataLoader(dataset=train_dataset, shuffle=True, batch_size=50)
-            val_loader = DataLoader(dataset=val_dataset, shuffle=True, batch_size=50)
-            for i, model in enumerate(self.model_list):
-                model.to(device)
-                optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
-                best_loss = 1e9
-                criterion = nn.MSELoss()
-                # for epoch in range(2):
-                for epoch in range(100):
-                    model.train()
-                    train_loss = list()
-                    for inputs, labels in train_loader:
-                        inputs, labels = inputs.to(device), labels.to(device)
-                        outputs = model(inputs)
-                        optimizer.zero_grad()
-                        loss = criterion(outputs, labels)
-                        loss.backward()
-                        optimizer.step()
-                        train_loss.append(loss.item())
+            train_loader = DataLoader(dataset=train_dataset, shuffle=True, batch_size=200)
+            val_loader = DataLoader(dataset=val_dataset, shuffle=True, batch_size=200)
+        
+            model = self.model_list[0]
+            model.to(device)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+            best_loss = 1e9
+            criterion = nn.MSELoss()
+            # for epoch in range(2):
+            start_time = time.time()
+            for epoch in range(100):
+            # for epoch in range(2):
+                model.train()
+                train_loss = list()
+                for inputs, labels in train_loader:
+                    inputs, labels = inputs.to(device), labels.to(device)
+                    outputs = model(inputs)
+                    optimizer.zero_grad()
+                    loss = criterion(outputs, labels)
+                    loss.backward()
+                    optimizer.step()
+                    train_loss.append(loss.item())
 
-                    # model validation
-                    model.eval()
-                    valid_loss = list()
-                    for inputs, labels in val_loader:
-                        inputs, labels = inputs.to(device), labels.to(device)
-                        outputs = model(inputs)
-                        loss = criterion(outputs, labels)
-                        # valid_loss += loss.item()
-                        valid_loss.append(loss.item())
+                # model validation
+                model.eval()
+                valid_loss = list()
+                for inputs, labels in val_loader:
+                    inputs, labels = inputs.to(device), labels.to(device)
+                    outputs = model(inputs)
+                    loss = criterion(outputs, labels)
+                    # valid_loss += loss.item()
+                    valid_loss.append(loss.item())
 
-                    print(f'Epoch {epoch} \t\t Training Loss: {np.nanmean(train_loss)} \t\t '
-                          f'Validation Loss: {np.nanmean(valid_loss)}')
+                print(f'Epoch {epoch} \t\t Training Loss: {np.nanmean(train_loss)} \t\t '
+                      f'Validation Loss: {np.nanmean(valid_loss)} \t\t'
+                      f'Time: {time.time()-start_time}'
+                      )
 
-                    # set early stop
-                    if np.nanmean(valid_loss) < best_loss:
-                        best_loss = np.nanmean(valid_loss)
-                        es = 0
-                        # torch.save(model.state_dict(), "model_" + str(fold) + 'weight.pt')
-                    else:
-                        es += 1
-                        print("Counter {} of 3".format(es))
-                        if es > 2:
-                            print("Early stopping with best_loss: ", best_loss,
-                                  "and val_loss for this epoch: ", np.nanmean(valid_loss))
-                            continue
+                # set early stop
+                if np.nanmean(valid_loss) < best_loss:
+                    best_loss = np.nanmean(valid_loss)
+                    es = 0
+                else:
+                    es += 1
+                    print("Counter {} of 3".format(es))
+                    if es > 2:
+                        print("Early stopping with best_loss: ", best_loss,
+                              "and val_loss for this epoch: ", np.nanmean(valid_loss))
+                        break
+                prediction = model(X_test)
+                test_loss = criterion(prediction, Y_test)
+                print(f' Rolling:{r} Loss on test set:{test_loss}')
 
-                if i == 0:
-                    best_model, best_score = model, best_loss
-                elif best_score > best_loss:
-                    best_model, best_score = model, best_loss
+                if r == 0:
+                    predictions = prediction.detach().numpy()
+                else:
+                    predictions = np.hstack((predictions, prediction.detach().numpy()))
 
-                pred = best_model(X_test.to(device))
-                test_loss = criterion(pred, Y_test)
-                print(f'Rolling:{r} Model:{i} Loss on test set:{test_loss}')
-
-            if r == 0:
-                predictions = pred.T
-            else:
-                predictions = torch.row_stack((predictions, pred.T))
-
-        return predictions
+                torch.save(model, f"./data/model/CNN.pt")
+                with open(f'./data/prediction/CNN.pkl', 'wb') as file:
+                    pickle.dump(predictions, file)
 
 
 

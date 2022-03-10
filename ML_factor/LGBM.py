@@ -118,6 +118,11 @@ class LGBM():
         # 更新参数训练模型
         for p in gsearch.best_params_:
             params[p] = gsearch.best_params_[p]
+        self.params = params
+        model = LGBMRegressor(**params)
+        model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], callbacks=[early_stopping(50), log_evaluation(10)])
+        return model
+    def DefiniteParamsTrainModell(self,train_x, train_y, valid_x, valid_y, params):
         model = LGBMRegressor(**params)
         model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], callbacks=[early_stopping(50), log_evaluation(10)])
         return model
@@ -141,12 +146,15 @@ class LGBM():
             whole_X = whole_X.reshape(np.shape(whole_X)[0]*np.shape(whole_X)[1],np.shape(whole_X)[2])
             whole_Y = self.Y[StartTimeInd:EndTimeInd,:]
             whole_Y = whole_Y.reshape(np.shape(whole_Y)[0]*np.shape(whole_Y)[1],1)
-            train_X,valid_X,train_Y,valid_Y = train_test_split(whole_X, whole_Y,
-                                                          test_size=0.2)
-            valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step*self.N, random_state=0)
+            train_X,valid_X,train_Y,valid_Y = train_test_split(whole_X, whole_Y,test_size=0.2, random_state=1)
+            valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step*self.N, random_state=1)
             # step 2 LGBM模型训练和测试
-            model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
-
+            # model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
+            # 为了加快训练速度，我们提出方案2，即第一次进行grid search，之后沿用前面的params进行fit
+            if step == 0:
+                model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
+            else:
+                model = self.DefiniteParamsTrainModell(train_X, train_Y, valid_X, valid_Y, self.params)
             pred_Y = model.predict(test_X)
             # step 3 展示模型预测效果,均方误差和R2oos误差
             mse = metrics.mean_squared_error(test_Y, pred_Y)

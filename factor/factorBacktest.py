@@ -284,56 +284,10 @@ class SingleFactorBacktest(object):
         # # 0211 鉴于引入了self.tradeDates变量，这里的index都改为self.tradeDates
         upperRts = pd.Series(data=np.zeros(self.longPosition.shape[0]), index=self.tradeDates)
         lowerRts = pd.Series(data=np.zeros(self.longPosition.shape[0]), index=self.tradeDates)
-        # stampTaxRate = 0
-        # longTurnover = pd.Series(data=np.zeros(self.longPosition.shape[0]), index=self.tradeDates)
-        # shortTurnover = pd.Series(data=np.zeros(self.longPosition.shape[0]), index=self.tradeDates)
-        # longShortRts = pd.Series(data=np.zeros(self.longPosition.shape[0]), index=self.tradeDates)
-        # oldLongPosition = self.longPosition.iloc[0]
-        # oldShortPosition = self.shortPosition.iloc[0]
-        # shortedPosition = pd.Series(data=np.full((self.shortPosition.shape[1],), False),
-        #                             index=self.shortPosition.columns)
-        # for dateIdx in range(2,self.longPosition.shape[0]):
-        #     newLongPosition = self.longPosition.iloc[dateIdx-1]
-        #     newShortPosition = self.shortPosition.iloc[dateIdx-1]
-        #     longTurnoverPosition = oldLongPosition ^ newLongPosition
-        #     shortTurnoverPosition = oldShortPosition ^ shortedPosition
-        #     if oldLongPosition.sum() == 0:
-        #         longTurnover.iloc[dateIdx - 1] = 1
-        #         shortTurnover.iloc[dateIdx - 1] = 1
-        #     else:
-        #         longTurnover.iloc[dateIdx - 1] = longTurnoverPosition.sum() / oldLongPosition.sum()
-        #         shortTurnover.iloc[dateIdx - 1] = shortTurnoverPosition.sum() / oldShortPosition.sum()
-        #
-        #     # 如果long short position对应的self.price里面出现了nan，则乘积为nan
-        #     # 0210 16:14上述理解错误，这个price下面怎么算longRts都是nan序列
-        #     # 在计算Rts之前，先判断position对应的当日价格是否存在nan
-        #     #oldLongPosition.iloc[np.isnan(self.price.iloc[dateIdx]).tolist()] = False
-        #     #oldLongPosition.iloc[np.isnan(self.price.iloc[dateIdx-1]).tolist()] = False
-        #     # groupRts[groupName] = np.hstack((0,0, np.nanmean(groupPosition.iloc[:-2, :].values * self.rts.iloc[2:, :].values, axis=1)))
-        #
-        #     #longRts.iloc[dateIdx] = (self.rts.iloc[dateIdx]*oldLongPosition).sum()
-        #     longRts.iloc[dateIdx] = (((self.price.iloc[dateIdx].tolist() * (
-        #                 oldLongPosition - longTurnoverPosition * stampTaxRate)).sum() - (
-        #                                           self.price.iloc[dateIdx - 1].tolist() * oldLongPosition).sum()) /
-        #                              ((self.price.iloc[dateIdx - 1].tolist() * oldLongPosition).sum() + (
-        #                                          self.price.iloc[dateIdx].tolist() * longTurnoverPosition).sum() * stampTaxRate))
-        #     shortRts.iloc[dateIdx] = (((self.price.iloc[dateIdx - 1].tolist() * (
-        #                 oldShortPosition - shortTurnoverPosition * stampTaxRate)).sum() - (
-        #                                            self.price.iloc[dateIdx].tolist() * oldShortPosition).sum()) /
-        #                               ((self.price.iloc[dateIdx].tolist() * oldShortPosition).sum() + (
-        #                                         self.price.iloc[dateIdx - 1].tolist() * shortTurnoverPosition).sum() * stampTaxRate))
-        #     shortedPosition = oldShortPosition
-        #     oldLongPosition = newLongPosition
-        #     oldShortPosition = newShortPosition
         for dateIdx in range(len(upperRts.index)):
-            # 0304 为了防止极端值不佳，我们挑选1-3组，8-10组两头各三组的收益，8-10组选择最大收益，1-3组选择最小收益
-            # 这样做可能不合规矩
-            for considerInd in range(2):
-                upperChoiceDict,lowerChoiceDict = {},{}
-                upperChoiceDict[self.groupRts['group'+str(self.layerNum-considerInd)].tolist()[-1]] = 'group'+str(self.layerNum-considerInd)
-                lowerChoiceDict[self.groupRts['group'+str(self.layerNum-considerInd)].tolist()[-1]] = 'group'+str(self.layerNum-considerInd)
-            upperGroupName = upperChoiceDict[max(upperChoiceDict)]
-            lowerGroupName = upperChoiceDict[min(lowerChoiceDict)]
+            # 0304 为了防止极端值不佳，我们挑选第2组和第9组进行比较
+            upperGroupName = 'group'+str(self.layerNum-1)
+            lowerGroupName = 'group2'
             upperRts.iloc[dateIdx] = self.groupRts[upperGroupName][dateIdx]
             lowerRts.iloc[dateIdx] = self.groupRts[lowerGroupName][dateIdx]
         if self.factorMode == 1:
@@ -342,7 +296,7 @@ class SingleFactorBacktest(object):
         else:
             shortRts = upperRts
             longRts = lowerRts
-        longShortRts = shortRts + shortRts
+        longShortRts = longRts - shortRts
         # turnover定义：当日股票成交量占全部持股比例
         longTurnover = (self.longPosition ^ self.longPosition.shift(1)).sum(axis = 1)/self.longPosition.sum(axis = 1)
         shortTurnover = (self.shortPosition ^ self.shortPosition.shift(1)).sum(axis=1) / self.shortPosition.sum(axis=1)
@@ -435,16 +389,16 @@ class SingleFactorBacktest(object):
         ax1.set_ylabel('single term returns(%)')
         ax1.legend()
         ax1Right = ax1.twinx()
-        ax1Right.plot((1 + self.longShortRts).cumprod() - 1, linewidth=3, label='long-short cum rts')
-        ax1Right.plot((1 + self.longRts).cumprod() - 1, linewidth=3, label='long cum rts')
-        ax1Right.plot((1 + self.shortRts).cumprod() - 1, linewidth=3, label='short cum rts')
+        ax1Right.plot(((1 + self.longShortRts).cumprod() - 1)*100, linewidth=3, label='long-short cum rts')
+        ax1Right.plot(((1 + self.longRts).cumprod() - 1)*100, linewidth=3, label='long cum rts')
+        ax1Right.plot(((1 + self.shortRts).cumprod() - 1)*100, linewidth=3, label='short cum rts')
         ax1Right.set_ylabel('cum returns(%)')
         ax1Right.legend()
         ticks = np.arange(0, self.longShortRts.shape[0], 90)
         #ax1.set_xticks(ticks)
         #ax1.set_xticklabels(labels=self.longShortRts.index[ticks])
         fig.autofmt_xdate(rotation=45)
-        ax2.plot((1 + self.longRts).cumprod() - 1, linewidth=3, color='red', label='long-short cum returns')
+        ax2.plot(((1 + self.longRts).cumprod() - 1)*100, linewidth=3, color='red', label='long-short cum returns')
         ax2.set_ylabel('cum returns(%)')
         ax2.legend()
         # ax2Right = ax2.twinx()

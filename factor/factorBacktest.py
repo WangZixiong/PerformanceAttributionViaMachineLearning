@@ -7,14 +7,15 @@ Created on Mon Jan  14 16:02:51 2020
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import time
 from scipy import stats
 from tqdm import tqdm
 from joblib import Parallel, delayed
-import seaborn as sns
+
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.colors import ListedColormap
-import time
+
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import KFold, GridSearchCV
 import matplotlib.pyplot as plt
@@ -398,7 +399,7 @@ class SingleFactorBacktest(object):
         #ax1.set_xticks(ticks)
         #ax1.set_xticklabels(labels=self.longShortRts.index[ticks])
         fig.autofmt_xdate(rotation=45)
-        ax2.plot(((1 + self.longRts).cumprod() - 1)*100, linewidth=3, color='red', label='long-short cum returns')
+        ax2.plot(((1 + self.longRts).cumprod() - 1)*100, linewidth=3, color='red', label='long cum returns')
         ax2.set_ylabel('cum returns(%)')
         ax2.legend()
         # ax2Right = ax2.twinx()

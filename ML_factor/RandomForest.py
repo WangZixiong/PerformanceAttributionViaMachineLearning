@@ -6,14 +6,27 @@
 """
 from sklearn import metrics
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.model_selection import train_test_split, GridSearchCV
 import numpy as np
 import pandas as pd
 import pickle
 import os
 from tqdm import tqdm
 from data.basicData import BasicData
-# rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
+import warnings
+warnings.filterwarnings("ignore")
+# 设置模型参数
+params = {
+    # 'criterion': 'squared_error',
+    'min_samples_split':2,
+    'n_jobs': -1,
+    'random_state': 1,
+}
+
+param_grid = {
+    'n_estimators': [50, 100],
+    'max_depth': [2, 3, 5]
+}
 class RF():
     def __init__(self,tradeType):
         super().__init__()
@@ -43,7 +56,7 @@ class RF():
             if key != 'sharedInformation':
                 factorNum += 1
                 # 0228因为要预测T+2时刻的收益率，因此时间维度提取-2之前的因子值即可
-                currFactorAllTimeAllStockValue = BasicData.basicFactor[key][:-2, :]
+                currFactorAllTimeAllStockValue = BasicData.basicFactor[key]['factorMatrix'][:-2, :]
                 # 判断因子值是否存在大量缺省
                 non_array = currFactorAllTimeAllStockValue[(~np.isnan(currFactorAllTimeAllStockValue)) & (~np.isinf(currFactorAllTimeAllStockValue))]
                 if non_array.shape[0] == 0:
@@ -55,7 +68,7 @@ class RF():
                     for ind in range(np.shape(currFactorAllTimeAllStockValue)[0]):
                         currFactorAllTimeAllStockValue[ind,:] = (currFactorAllTimeAllStockValue[ind,:]-min(currFactorAllTimeAllStockValue[ind,:]))\
                                                          /(max(currFactorAllTimeAllStockValue[ind,:])-min(currFactorAllTimeAllStockValue[ind,:]))
-                    if factorInd == 0:
+                    if factorInd == 1:
                         AllFactorAllStockAllTimeValue = currFactorAllTimeAllStockValue
                     else:
                         AllFactorAllStockAllTimeValue = np.hstack((AllFactorAllStockAllTimeValue, currFactorAllTimeAllStockValue))
@@ -98,108 +111,76 @@ class RF():
 
     def data_preparation(self):
         print('start data preperation')
-        if os.path.exists(BasicData.rootPath + r'\data\RFData\RFData_label.pkl'):
-            self.Y = pd.read_pickle(BasicData.rootPath + r'\data\RFData\RFData_label.pkl')
+        if os.path.exists(r'./data/LGBMData/LGBMData_label.pkl'):
+            self.Y = pd.read_pickle(r'./data/LGBMData/LGBMData_label.pkl')
         else:
             self.Y_preperation()
-        if os.path.exists(BasicData.rootPath+r'\data\RFData\RFData_feature.pkl'):
-           self.X = pd.read_pickle(BasicData.rootPath+r'\data\RFData\RFData_feature.pkl')
+        if os.path.exists(r'./data/LGBMData/LGBMData_feature.pkl'):
+           self.X = pd.read_pickle(r'./data/LGBMData/LGBMData_feature.pkl')
         else:
            self.X_preperation()
         # 树模型需要非空的输入输出，需要将NaN的样本feature和label填充为0
         np.nan_to_num(self.Y, copy=False)
         np.nan_to_num(self.X, copy=False)
-    def newvalidation(self,MaxDepth,N_Estimators,startDateInd,endDateInd):
-        model = RandomForestRegressor(criterion = 'mse',n_estimators=N_Estimators,max_depth = MaxDepth,n_jobs=-1)
-        # model = GradientBoostingRegressor(criterion = 'mse',n_estimators=N_Estimators,max_depth = MaxDepth)
-        trainStartDateInd, trainEndDateInd = startDateInd, startDateInd+int((endDateInd-startDateInd)*0.8)
-        testStartDateInd, testEndDateInd = startDateInd+int((endDateInd-startDateInd)*0.8), endDateInd
-        # train_test_dataDict = self.train_test_split_function(trainStartDateInd, trainEndDateInd, testStartDateInd,testEndDateInd)
-        # X_train, y_train, X_test, y_test = train_test_dataDict['X_train'], train_test_dataDict['y_train'], \
-        #                                    train_test_dataDict['X_test'], train_test_dataDict['y_test']
-        X_train = self.X[trainStartDateInd: trainEndDateInd,: , :]
-        X_train = X_train.reshape([np.shape(X_train)[0]* np.shape(X_train)[1], np.shape(X_train)[2]])
-        y_train = self.Y[trainStartDateInd: trainEndDateInd,: ]
-        y_train = y_train.reshape([np.shape(y_train)[0] * np.shape(y_train)[1], 1])
-        X_test = self.X[testStartDateInd: testEndDateInd,:,: ]
-        X_test = X_test.reshape([np.shape(X_test)[0] * np.shape(X_test)[1], np.shape(X_test)[2]])
-        y_test = self.Y[testStartDateInd: testEndDateInd,:]
-        y_test = y_test.reshape([np.shape(y_test)[0] * np.shape(y_test)[1], 1])
-        model.fit(X_train, y_train)
-        y_predict = model.predict(X_test)
-        mse = metrics.mean_squared_error(y_test, y_predict)
-        zero_mse = metrics.mean_squared_error(y_predict,np.zeros(np.shape(y_predict)))
-        return [mse,zero_mse]
-    def fit_and_predict(self,step):
-        R2oosDF = pd.DataFrame(index=self.all_date,columns = ['R2oos'])
-        factorExposure = pd.DataFrame(np.zeros([self.T, self.N]))
-        trainStartDateInd, trainEndDateInd = step * self.rolling_step, self.batch_size + step * self.rolling_step
-        testStartDateInd, testEndDateInd = self.batch_size + step * self.rolling_step, self.batch_size + (
-                    step + 1) * self.rolling_step
-        # 初始化模型参数
-        minMSEDict = {'maxDepth': 5, 'nEstimators': 200, 'mse': 1}
-        # 通过grid search进行validation选择最佳超参数
-        # for maxDepth in [2,3,4]:
-        #    for nEstimators in [50,100,200]:
-        #        currMSE,zeroMSE = self.newvalidation(maxDepth, nEstimators, trainStartDateInd, trainEndDateInd)
-        #        print("maxDepth={}, nEstimators = {},currMSE = {},zeroMSE ={}".format(maxDepth, nEstimators, currMSE,zeroMSE))
-        #        if currMSE < minMSEDict['mse']:
-        #            minMSEDict['maxDepth'],minMSEDict['nEstimators'],minMSEDict['mse'] = maxDepth,nEstimators,currMSE
-        print("step={}, startDate = {},endDate = {}, bestMaxDepth = {}, bestNEstimators = {}".format(step,
-                    self.all_date[trainStartDateInd],self.all_date[testStartDateInd], minMSEDict['maxDepth'],minMSEDict['nEstimators']))
 
-        # model = GradientBoostingRegressor(criterion='mse', n_estimators=minMSEDict['nEstimators'],
-        #                                   max_depth=minMSEDict['maxDepth'])
-        model = RandomForestRegressor(criterion='mse', max_depth=minMSEDict['maxDepth'], n_estimators=minMSEDict['nEstimators'],n_jobs=-1)
-        # train_test_dataDict = self.train_test_split_function(trainStartDateInd, trainEndDateInd, testStartDateInd,
-        #                                                      testEndDateInd)
-
-        X_train = self.X[trainStartDateInd: trainEndDateInd,: , :]
-        X_train = X_train.reshape([np.shape(X_train)[0]* np.shape(X_train)[1], np.shape(X_train)[2]])
-        y_train = self.Y[trainStartDateInd: trainEndDateInd,: ]
-        y_train = y_train.reshape([np.shape(y_train)[0] * np.shape(y_train)[1], 1])
-        X_test = self.X[testStartDateInd: testEndDateInd,:,: ]
-        X_test = X_test.reshape([np.shape(X_test)[0] * np.shape(X_test)[1], np.shape(X_test)[2]])
-        y_test = self.Y[testStartDateInd: testEndDateInd,:]
-        y_test = y_test.reshape([np.shape(y_test)[0] * np.shape(y_test)[1], 1])
-        print('开始模型拟合')
-        model.fit(X_train, y_train)
-        print('完成模型拟合')
-        # 方法1：全部输入模型中进行预测，对结果按照时间依次划分得到每日的factorExposure
-        # 出现问题是，单只个股多日因子载荷相同
-        y_predict = model.predict(X_test)
-        predict_mse = metrics.mean_squared_error(y_test,y_predict)
-        zero_mse = metrics.mean_squared_error(y_predict,np.zeros(np.shape(y_predict)))
-        R2oos = 1-predict_mse/zero_mse
-        R2 = model.score(X_test,y_test)
-        print("step={}, startDate = {},endDate = {}, R2oos={},R2 = {}".format(step, self.all_date[trainStartDateInd],
-                                                                      self.all_date[testStartDateInd], R2oos,R2))
-        R2oosDF.loc[self.all_date[testStartDateInd:testEndDateInd],'R2oos'] = float(format(R2oos,'.2g'))
-
-        # 因为是每日预测，预测收益率作为因子载荷
-        y_predict = y_predict.reshape([int(np.size(y_predict)/self.N),self.N])
-        factorExposure.loc[range(testStartDateInd,testEndDateInd),:] = y_predict
-
-        # 方法2：每日数据依次输入模型中进行预测，得到每日的factorExposure
-        for dateInd in tqdm(range(testStartDateInd, testEndDateInd)):
-            currX_test = self.X[dateInd, :, :]
-            curry_predict = model.predict(currX_test)
-            factorExposure.loc[dateInd, :] = curry_predict
-        return [factorExposure,R2oosDF]
+    def train_model(self,train_x, train_y, valid_x, valid_y, params, param_grid):
+        g_model = RandomForestRegressor(**params)
+        gsearch = GridSearchCV(g_model, param_grid=param_grid, scoring='neg_mean_squared_error')
+        gsearch.fit(valid_x,valid_y)
+        # 更新参数训练模型
+        for p in gsearch.best_params_:
+            params[p] = gsearch.best_params_[p]
+        self.params = params
+        model = RandomForestRegressor(**params)
+        model.fit(train_x, train_y)
+        return model
+    def DefiniteParamsTrainModell(self,train_x, train_y, valid_x, valid_y, params):
+        model = RandomForestRegressor(**params)
+        model.fit(train_x, train_y)
+        return model
 
     def rolling_fit(self):
         self.get_tradedays()
-        R2oosDF = pd.DataFrame(index = self.all_date)
-
+        R2oosDF = pd.DataFrame(index=self.all_date)
         # factorExposure是对未来收益率的预测，每行代表一个工作日，每列代表一只个股
-        factorExposure = pd.DataFrame(np.zeros([self.T,self.N]))
+        factorExposure = pd.DataFrame(np.zeros([self.T, self.N]))
         if self.tradeType == 'open':
-            stepRange = (len(self.all_date)-self.batch_size-2)//self.rolling_step
+            stepRange = (len(self.all_date) - self.batch_size - 2) // self.rolling_step
         elif self.tradeType == 'close':
             stepRange = (len(self.all_date) - self.batch_size - 1) // self.rolling_step
         print('start rolling_fit loop')
         for step in tqdm(range(stepRange)):
-            results = self.fit_and_predict(step)
-            factorExposure = factorExposure.append(results[0])
-            R2oosDF = R2oosDF.append(results[1])
-        return [factorExposure, R2oosDF]
+            # step 1 划分训练 验证 测试集
+            StartTimeInd,EndTimeInd = step * self.rolling_step,self.batch_size + step * self.rolling_step
+            # 0302 按照君遥的lightGBM.py的划分方法，我们把train valid test一起划分出来后按比例再划分
+            # 如果想要self.roling_step作为test集长度的话，self.batch_size要够大，满足比例要求
+            whole_X = self.X[StartTimeInd:EndTimeInd,:,:]
+            whole_X = whole_X.reshape(np.shape(whole_X)[0]*np.shape(whole_X)[1],np.shape(whole_X)[2])
+            whole_Y = self.Y[StartTimeInd:EndTimeInd,:]
+            whole_Y = whole_Y.reshape(np.shape(whole_Y)[0]*np.shape(whole_Y)[1],1)
+            train_X,valid_X,train_Y,valid_Y = train_test_split(whole_X, whole_Y,test_size=0.2, random_state=1)
+            valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step*self.N, random_state=1)
+            # step 2 LGBM模型训练和测试
+            # model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
+            # 为了加快训练速度，我们提出方案2，即第一次进行grid search，之后沿用前面的params进行fit
+            if step == 0:
+                model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
+            else:
+                model = self.DefiniteParamsTrainModell(train_X, train_Y, valid_X, valid_Y, self.params)
+            pred_Y = model.predict(test_X)
+            # step 3 展示模型预测效果,均方误差和R2oos误差
+            mse = metrics.mean_squared_error(test_Y, pred_Y)
+            zeros_mse = metrics.mean_squared_error(pred_Y, np.zeros(np.shape(pred_Y)))
+            print("step={}, startDate = {},endDate = {}, MSE = {}, ZERO_MSE = {}".format(step,self.all_date[StartTimeInd],
+                                        self.all_date[EndTimeInd],mse,zeros_mse))
+            # step 4 将预测收益率作为因子值记录下来
+            testStartInd,testEndInd = self.batch_size + (step-1) * self.rolling_step,self.batch_size + step * self.rolling_step
+            for timeInd in range(testStartInd,testEndInd):
+                currX = self.X[timeInd,:,:]
+                currY = self.Y[timeInd,:]
+                currPredY = model.predict(currX)
+                factorExposure.loc[timeInd,:] = currPredY
+                mse = metrics.mean_squared_error(currY, currPredY)
+                zeros_mse = metrics.mean_squared_error(currPredY, np.zeros(np.shape(currY)))
+                R2oosDF.loc[timeInd,'R2oos'] = 1-mse/zeros_mse
+        return [factorExposure,R2oosDF]

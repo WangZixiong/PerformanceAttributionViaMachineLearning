@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pickle
 import os
+import joblib
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from data.basicData import BasicData
 import warnings
@@ -72,7 +74,7 @@ class RF():
                         AllFactorAllStockAllTimeValue = currFactorAllTimeAllStockValue
                     else:
                         AllFactorAllStockAllTimeValue = np.hstack((AllFactorAllStockAllTimeValue, currFactorAllTimeAllStockValue))
-                    # self.X[factorInd] = currFactorAllTimeAllStockValue
+                    # AllFactorAllStockAllTimeValue最终是时间*（因子数*个股数）的格式
         for timeInd,time in tqdm(enumerate(range(np.shape(AllFactorAllStockAllTimeValue)[0]))):
             currTimeAllStocksAllFactor = AllFactorAllStockAllTimeValue[timeInd,:]
             currTimeFactorMatrix = np.zeros([stockNum,factorNum])
@@ -81,7 +83,7 @@ class RF():
             self.X.append(currTimeFactorMatrix)
                 # self.X 三维数组，[时间，个股数，因子数]
         self.X = np.array(self.X)
-        with open(BasicData.rootPath+r'\data\RFData\RFData_feature.pkl', 'wb') as file:
+        with open(BasicData.rootPath+r'./data/RFData/RFData_feature.pkl', 'wb') as file:
             pickle.dump(self.X, file)
     def Y_preperation(self,nums = 300):
         self.get_tradedays()
@@ -106,17 +108,17 @@ class RF():
         self.Y = np.array(self.Y).T
         # 按照当日因子值交易，是按照次日开盘价买入，第三天开盘价卖出，因此因子对应收益率取[2:]，未来可能会出现X与Y对不齐的问题
         self.Y = self.Y[2:, :]
-        with open(BasicData.rootPath+r'\data\RFData\RFData_label.pkl', 'wb') as file:
+        with open(BasicData.rootPath+r'./data/RFData/RFData_label.pkl', 'wb') as file:
             pickle.dump(self.Y, file)
 
     def data_preparation(self):
         print('start data preperation')
-        if os.path.exists(r'./data/LGBMData/LGBMData_label.pkl'):
-            self.Y = pd.read_pickle(r'./data/LGBMData/LGBMData_label.pkl')
+        if os.path.exists(r'./data/RFData/RFData_label.pkl'):
+            self.Y = pd.read_pickle(r'./data/RFData/RFData_label.pkl')
         else:
             self.Y_preperation()
-        if os.path.exists(r'./data/LGBMData/LGBMData_feature.pkl'):
-           self.X = pd.read_pickle(r'./data/LGBMData/LGBMData_feature.pkl')
+        if os.path.exists(r'./data/RFData/RFData_feature.pkl'):
+           self.X = pd.read_pickle(r'./data/RFData/RFData_feature.pkl')
         else:
            self.X_preperation()
         # 树模型需要非空的输入输出，需要将NaN的样本feature和label填充为0
@@ -134,7 +136,7 @@ class RF():
         model = RandomForestRegressor(**params)
         model.fit(train_x, train_y)
         return model
-    def DefiniteParamsTrainModell(self,train_x, train_y, valid_x, valid_y, params):
+    def DefiniteParamsTrainModel(self,train_x, train_y, valid_x, valid_y, params):
         model = RandomForestRegressor(**params)
         model.fit(train_x, train_y)
         return model
@@ -142,6 +144,7 @@ class RF():
     def rolling_fit(self):
         self.get_tradedays()
         R2oosDF = pd.DataFrame(index=self.all_date)
+        featureImportanceDF = pd.DataFrame(columns=range(np.shape(self.X)[2]))
         # factorExposure是对未来收益率的预测，每行代表一个工作日，每列代表一只个股
         factorExposure = pd.DataFrame(np.zeros([self.T, self.N]))
         if self.tradeType == 'open':
@@ -149,38 +152,63 @@ class RF():
         elif self.tradeType == 'close':
             stepRange = (len(self.all_date) - self.batch_size - 1) // self.rolling_step
         print('start rolling_fit loop')
-        for step in tqdm(range(stepRange)):
+        for step in tqdm(range(stepRange + 1)):
             # step 1 划分训练 验证 测试集
-            StartTimeInd,EndTimeInd = step * self.rolling_step,self.batch_size + step * self.rolling_step
+            StartTimeInd, EndTimeInd = step * self.rolling_step, self.batch_size + step * self.rolling_step
             # 0302 按照君遥的lightGBM.py的划分方法，我们把train valid test一起划分出来后按比例再划分
             # 如果想要self.roling_step作为test集长度的话，self.batch_size要够大，满足比例要求
-            whole_X = self.X[StartTimeInd:EndTimeInd,:,:]
-            whole_X = whole_X.reshape(np.shape(whole_X)[0]*np.shape(whole_X)[1],np.shape(whole_X)[2])
-            whole_Y = self.Y[StartTimeInd:EndTimeInd,:]
-            whole_Y = whole_Y.reshape(np.shape(whole_Y)[0]*np.shape(whole_Y)[1],1)
-            train_X,valid_X,train_Y,valid_Y = train_test_split(whole_X, whole_Y,test_size=0.2, random_state=1)
-            valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step*self.N, random_state=1)
+            whole_X = self.X[StartTimeInd:EndTimeInd, :, :]
+            whole_X = whole_X.reshape(np.shape(whole_X)[0] * np.shape(whole_X)[1], np.shape(whole_X)[2])
+            whole_Y = self.Y[StartTimeInd:EndTimeInd, :]
+            whole_Y = whole_Y.reshape(np.shape(whole_Y)[0] * np.shape(whole_Y)[1], 1)
+            train_X, valid_X, train_Y, valid_Y = train_test_split(whole_X, whole_Y, test_size=0.2)
+            # valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step * self.N)
             # step 2 LGBM模型训练和测试
             # model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
             # 为了加快训练速度，我们提出方案2，即第一次进行grid search，之后沿用前面的params进行fit
             if step == 0:
                 model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
             else:
-                model = self.DefiniteParamsTrainModell(train_X, train_Y, valid_X, valid_Y, self.params)
-            pred_Y = model.predict(test_X)
+                model = self.DefiniteParamsTrainModel(train_X, train_Y, valid_X, valid_Y, self.params)
+            # 0317 保存每一期feature importance,最后一期模型
+            joblib.dump(model, 'RFModel.pkl')
+            featureImportanceDF.loc[step, :] = model.feature_importances_
+            # 0317 画出训练误差曲线
+            results = model.evals_result()
+            epochs = len(results['validation_0']['rmse'])
+            x_axis = range(0, epochs)
+            # plot log loss
+            fig, ax = pyplot.subplots()
+            ax.plot(x_axis, results['validation_0']['rmse'], label='Train')
+            ax.plot(x_axis, results['validation_1']['rmse'], label='Test')
+            ax.legend()
+            pyplot.ylabel('RMSE Loss')
+            pyplot.title('RF Loss')
+            # pyplot.show()
+            # 画出feature importance曲线
+            # plot_importance(model, max_num_features=20)
+            # plt.show()
             # step 3 展示模型预测效果,均方误差和R2oos误差
+            testStartInd, testEndInd = self.batch_size + step * self.rolling_step, min(
+                self.batch_size + (step + 1) * self.rolling_step, np.shape(self.X)[0])
+            test_X = self.X[testStartInd:testEndInd, :, :]
+            test_Y = self.Y[testStartInd:testEndInd, :]
+            test_X = test_X.reshape(np.shape(test_X)[0] * np.shape(test_X)[1], np.shape(test_X)[2])
+            test_Y = test_Y.reshape(np.shape(test_Y)[0] * np.shape(test_Y)[1], 1)
+            pred_Y = model.predict(test_X)
             mse = metrics.mean_squared_error(test_Y, pred_Y)
             zeros_mse = metrics.mean_squared_error(pred_Y, np.zeros(np.shape(pred_Y)))
-            print("step={}, startDate = {},endDate = {}, MSE = {}, ZERO_MSE = {}".format(step,self.all_date[StartTimeInd],
-                                        self.all_date[EndTimeInd],mse,zeros_mse))
+            print("step={}, startDate = {},endDate = {}, MSE = {}, ZERO_MSE = {}".format(step,
+                                                                                         self.all_date[StartTimeInd],
+                                                                                         self.all_date[EndTimeInd], mse,
+                                                                                         zeros_mse))
             # step 4 将预测收益率作为因子值记录下来
-            testStartInd,testEndInd = self.batch_size + (step-1) * self.rolling_step,self.batch_size + step * self.rolling_step
-            for timeInd in range(testStartInd,testEndInd):
-                currX = self.X[timeInd,:,:]
-                currY = self.Y[timeInd,:]
+            for timeInd in range(testStartInd, testEndInd):
+                currX = self.X[timeInd, :, :]
+                currY = self.Y[timeInd, :]
                 currPredY = model.predict(currX)
-                factorExposure.loc[timeInd,:] = currPredY
+                factorExposure.loc[timeInd, :] = currPredY
                 mse = metrics.mean_squared_error(currY, currPredY)
                 zeros_mse = metrics.mean_squared_error(currPredY, np.zeros(np.shape(currY)))
-                R2oosDF.loc[timeInd,'R2oos'] = 1-mse/zeros_mse
-        return [factorExposure,R2oosDF]
+                R2oosDF.loc[timeInd, 'R2oos'] = 1 - mse / zeros_mse
+        return [factorExposure, R2oosDF, featureImportanceDF]

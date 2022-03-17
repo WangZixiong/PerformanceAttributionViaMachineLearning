@@ -8,12 +8,14 @@ from sklearn import metrics
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split, GridSearchCV
+# from sklearn.externals import joblib
 from lightgbm.sklearn import LGBMRegressor
 from lightgbm import plot_importance, early_stopping, log_evaluation
 from data.basicData import BasicData
 import numpy as np
 import pandas as pd
 import pickle
+import joblib
 import os
 from tqdm import tqdm
 import warnings
@@ -122,7 +124,7 @@ class LGBM():
         model = LGBMRegressor(**params)
         model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], callbacks=[early_stopping(50), log_evaluation(10)])
         return model
-    def DefiniteParamsTrainModell(self,train_x, train_y, valid_x, valid_y, params):
+    def DefiniteParamsTrainModel(self,train_x, train_y, valid_x, valid_y, params):
         model = LGBMRegressor(**params)
         model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], callbacks=[early_stopping(50), log_evaluation(10)])
         return model
@@ -130,6 +132,7 @@ class LGBM():
     def rolling_fit(self):
         self.get_tradedays()
         R2oosDF = pd.DataFrame(index=self.all_date)
+        featureImportanceDF = pd.DataFrame(columns=range(np.shape(self.X)[2]))
         # factorExposure是对未来收益率的预测，每行代表一个工作日，每列代表一只个股
         factorExposure = pd.DataFrame(np.zeros([self.T, self.N]))
         if self.tradeType == 'open':
@@ -137,7 +140,7 @@ class LGBM():
         elif self.tradeType == 'close':
             stepRange = (len(self.all_date) - self.batch_size - 1) // self.rolling_step
         print('start rolling_fit loop')
-        for step in tqdm(range(stepRange)):
+        for step in tqdm(range(stepRange+1)):
             # step 1 划分训练 验证 测试集
             StartTimeInd,EndTimeInd = step * self.rolling_step,self.batch_size + step * self.rolling_step
             # 0302 按照君遥的lightGBM.py的划分方法，我们把train valid test一起划分出来后按比例再划分
@@ -146,27 +149,39 @@ class LGBM():
             whole_X = whole_X.reshape(np.shape(whole_X)[0]*np.shape(whole_X)[1],np.shape(whole_X)[2])
             whole_Y = self.Y[StartTimeInd:EndTimeInd,:]
             whole_Y = whole_Y.reshape(np.shape(whole_Y)[0]*np.shape(whole_Y)[1],1)
-            train_X,valid_X,train_Y,valid_Y = train_test_split(whole_X, whole_Y,test_size=0.2, random_state=1)
-            valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step*self.N, random_state=1)
+            train_X,valid_X,train_Y,valid_Y = train_test_split(whole_X, whole_Y,test_size=0.2)
+            # valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step*self.N)
             # step 2 LGBM模型训练和测试
             # model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
             # 为了加快训练速度，我们提出方案2，即第一次进行grid search，之后沿用前面的params进行fit
             if step == 0:
                 model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
             else:
-                model = self.DefiniteParamsTrainModell(train_X, train_Y, valid_X, valid_Y, self.params)
-            pred_Y = model.predict(test_X)
+                model = self.DefiniteParamsTrainModel(train_X, train_Y, valid_X, valid_Y, self.params)
+            # 0317 保存最后一期模型,保存每一期feature importance
+            featureImportanceDF.loc[step, :] = model.feature_importances_
+            joblib.dump(model, 'lightGBMModel.pkl')
             # step 3 展示模型预测效果,均方误差和R2oos误差
+            testStartInd, testEndInd = self.batch_size + step * self.rolling_step, min(
+                self.batch_size + (step + 1) * self.rolling_step, np.shape(self.X)[0])
+            test_X = self.X[testStartInd:testEndInd, :, :]
+            test_Y = self.Y[testStartInd:testEndInd, :]
+            test_X = test_X.reshape(np.shape(test_X)[0] * np.shape(test_X)[1], np.shape(test_X)[2])
+            test_Y = test_Y.reshape(np.shape(test_Y)[0] * np.shape(test_Y)[1], 1)
+            pred_Y = model.predict(test_X)
             mse = metrics.mean_squared_error(test_Y, pred_Y)
             zeros_mse = metrics.mean_squared_error(pred_Y, np.zeros(np.shape(pred_Y)))
             print("step={}, startDate = {},endDate = {}, MSE = {}, ZERO_MSE = {}".format(step,self.all_date[StartTimeInd],
                                         self.all_date[EndTimeInd],mse,zeros_mse))
-            plot_importance(model, max_num_features=10)
-            plt.show()
+            # plot_importance(model, max_num_features=20)
+            # plt.show()
             # step 4 将预测收益率作为因子值记录下来
-            testStartInd,testEndInd = self.batch_size + (step-1) * self.rolling_step,self.batch_size + step * self.rolling_step
             for timeInd in range(testStartInd,testEndInd):
                 currX = self.X[timeInd,:,:]
+                currY = self.Y[timeInd,:]
                 currPredY = model.predict(currX)
                 factorExposure.loc[timeInd,:] = currPredY
-        return factorExposure
+                mse = metrics.mean_squared_error(currY, currPredY)
+                zeros_mse = metrics.mean_squared_error(currPredY, np.zeros(np.shape(currY)))
+                R2oosDF.loc[timeInd, 'R2oos'] = 1 - mse / zeros_mse
+        return [factorExposure,R2oosDF,featureImportanceDF]

@@ -16,11 +16,14 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot
 import pickle
+import joblib
 import os
 from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
-rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
+# rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
+rootPath = 'C:\\Users\\Administrator\\Documents\\GitHub\\PerformanceAttributionViaMachineLearning\\'
+
 #%%
 # 设置模型参数
 params = {
@@ -34,7 +37,7 @@ params = {
 param_grid = {
     'learning_rate': [0.05, 0.1, 0.3],
     # 'num_leaves': [16, 32, 64],
-    'max_depth': [3, 5, 8]
+    'max_depth': [2, 3, 5]
 }
 class XGB():
     def __init__(self,tradeType):
@@ -122,16 +125,17 @@ class XGB():
             params[p] = gsearch.best_params_[p]
         self.params = params
         model = XGBRegressor(**params)
-        model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], early_stopping_rounds = 10, verbose = True)
+        model.fit(train_x, train_y, eval_set=[(train_x,train_y),(valid_x, valid_y)], early_stopping_rounds = 5, verbose = True)
         return model
     def DefiniteParamsTrainModel(self,train_x, train_y, valid_x, valid_y, params):
         model = XGBRegressor(**params)
-        model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)], early_stopping_rounds = 10, verbose = True)
+        model.fit(train_x, train_y, eval_set=[(train_x,train_y),(valid_x, valid_y)], early_stopping_rounds = 5, verbose = True)
         return model
 
     def rolling_fit(self):
         self.get_tradedays()
         R2oosDF = pd.DataFrame(index=self.all_date)
+        featureImportanceDF = pd.DataFrame(columns=range(np.shape(self.X)[2]))
         # factorExposure是对未来收益率的预测，每行代表一个工作日，每列代表一只个股
         factorExposure = pd.DataFrame(np.zeros([self.T, self.N]))
         if self.tradeType == 'open':
@@ -139,17 +143,17 @@ class XGB():
         elif self.tradeType == 'close':
             stepRange = (len(self.all_date) - self.batch_size - 1) // self.rolling_step
         print('start rolling_fit loop')
-        for step in tqdm(range(stepRange)):
+        for step in tqdm(range(stepRange + 1)):
             # step 1 划分训练 验证 测试集
-            StartTimeInd,EndTimeInd = step * self.rolling_step,self.batch_size + step * self.rolling_step
+            StartTimeInd, EndTimeInd = step * self.rolling_step, self.batch_size + step * self.rolling_step
             # 0302 按照君遥的lightGBM.py的划分方法，我们把train valid test一起划分出来后按比例再划分
             # 如果想要self.roling_step作为test集长度的话，self.batch_size要够大，满足比例要求
-            whole_X = self.X[StartTimeInd:EndTimeInd,:,:]
-            whole_X = whole_X.reshape(np.shape(whole_X)[0]*np.shape(whole_X)[1],np.shape(whole_X)[2])
-            whole_Y = self.Y[StartTimeInd:EndTimeInd,:]
-            whole_Y = whole_Y.reshape(np.shape(whole_Y)[0]*np.shape(whole_Y)[1],1)
-            train_X,valid_X,train_Y,valid_Y = train_test_split(whole_X, whole_Y,test_size=0.2, random_state=1)
-            valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step*self.N, random_state=1)
+            whole_X = self.X[StartTimeInd:EndTimeInd, :, :]
+            whole_X = whole_X.reshape(np.shape(whole_X)[0] * np.shape(whole_X)[1], np.shape(whole_X)[2])
+            whole_Y = self.Y[StartTimeInd:EndTimeInd, :]
+            whole_Y = whole_Y.reshape(np.shape(whole_Y)[0] * np.shape(whole_Y)[1], 1)
+            train_X, valid_X, train_Y, valid_Y = train_test_split(whole_X, whole_Y, test_size=0.2)
+            # valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step * self.N)
             # step 2 LGBM模型训练和测试
             # model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
             # 为了加快训练速度，我们提出方案2，即第一次进行grid search，之后沿用前面的params进行fit
@@ -157,18 +161,45 @@ class XGB():
                 model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
             else:
                 model = self.DefiniteParamsTrainModel(train_X, train_Y, valid_X, valid_Y, self.params)
-            pred_Y = model.predict(test_X)
+            # 0317 保存每一期feature importance,最后一期模型
+            joblib.dump(model, 'XGBoostModel.pkl')
+            featureImportanceDF.loc[step, :] = model.feature_importances_
+            # 0317 画出训练误差曲线
+            results = model.evals_result()
+            epochs = len(results['validation_0']['rmse'])
+            x_axis = range(0, epochs)
+            # plot log loss
+            fig, ax = pyplot.subplots()
+            ax.plot(x_axis, results['validation_0']['rmse'], label='Train')
+            ax.plot(x_axis, results['validation_1']['rmse'], label='Test')
+            ax.legend()
+            pyplot.ylabel('RMSE Loss')
+            pyplot.title('XGBoost Loss')
+            # pyplot.show()
+            # 画出feature importance曲线
+            # plot_importance(model, max_num_features=20)
+            # plt.show()
             # step 3 展示模型预测效果,均方误差和R2oos误差
+            testStartInd, testEndInd = self.batch_size + step * self.rolling_step, min(
+                self.batch_size + (step + 1) * self.rolling_step, np.shape(self.X)[0])
+            test_X = self.X[testStartInd:testEndInd, :, :]
+            test_Y = self.Y[testStartInd:testEndInd, :]
+            test_X = test_X.reshape(np.shape(test_X)[0] * np.shape(test_X)[1], np.shape(test_X)[2])
+            test_Y = test_Y.reshape(np.shape(test_Y)[0] * np.shape(test_Y)[1], 1)
+            pred_Y = model.predict(test_X)
             mse = metrics.mean_squared_error(test_Y, pred_Y)
             zeros_mse = metrics.mean_squared_error(pred_Y, np.zeros(np.shape(pred_Y)))
-            print("step={}, startDate = {},endDate = {}, MSE = {}, ZERO_MSE = {}".format(step,self.all_date[StartTimeInd],
-                                        self.all_date[EndTimeInd],mse,zeros_mse))
-            plot_importance(model, max_num_features=10)
-            plt.show()
+            print("step={}, startDate = {},endDate = {}, MSE = {}, ZERO_MSE = {}".format(step,
+                                                                                         self.all_date[StartTimeInd],
+                                                                                         self.all_date[EndTimeInd], mse,
+                                                                                         zeros_mse))
             # step 4 将预测收益率作为因子值记录下来
-            testStartInd,testEndInd = self.batch_size + (step-1) * self.rolling_step,self.batch_size + step * self.rolling_step
-            for timeInd in range(testStartInd,testEndInd):
-                currX = self.X[timeInd,:,:]
+            for timeInd in range(testStartInd, testEndInd):
+                currX = self.X[timeInd, :, :]
+                currY = self.Y[timeInd, :]
                 currPredY = model.predict(currX)
-                factorExposure.loc[timeInd,:] = currPredY
-        return factorExposure
+                factorExposure.loc[timeInd, :] = currPredY
+                mse = metrics.mean_squared_error(currY, currPredY)
+                zeros_mse = metrics.mean_squared_error(currPredY, np.zeros(np.shape(currY)))
+                R2oosDF.loc[timeInd, 'R2oos'] = 1 - mse / zeros_mse
+        return [factorExposure, R2oosDF, featureImportanceDF]

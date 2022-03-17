@@ -9,5 +9,7 @@ rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaM
 
 lgbm = LGBM('open')
 lgbm.data_preparation()
-factorExposure = lgbm.rolling_fit()
-factorExposure.to_csv(rootPath+'factor\\LGBM因子载荷矩阵.csv')
+factorExposure,R2oosDF,featureImportanceDF = lgbm.rolling_fit()
+factorExposure.to_csv(rootPath+'factor\\LGBM因子载荷矩阵0317.csv')
+R2oosDF.to_csv(rootPath+'factor\\LGBM因子R2oos误差0317.csv')
+featureImportanceDF.to_csv(rootPath+'factor\\LGBM因子重要性0317.csv')

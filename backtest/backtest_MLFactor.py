@@ -9,27 +9,40 @@ import pandas as pd
 from tqdm import tqdm
 from factor.factorBacktest import SingleFactorBacktest
 rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
-factorExposure = pd.read_csv(rootPath+'factor\\LGBM因子载荷矩阵.csv',index_col = 0)
-# factorExposure = pd.read_pickle(rootPath+'factor\\PLS_stk_loading.pkl')
+# 线性模型因子读取方式
+factorExposure = pd.read_pickle(rootPath+'factor\\LGBM_stk_loading.pickle')
+factorExposure = factorExposure['stk_loading']
+# factorExposure.drop(['index'],axis = 1,inplace = True)
+
+# 树模型因子读取方式
+# factorExposure = pd.read_pickle(rootPath+'factor\\RF_stk_loading.pickle')
+# factorExposure = factorExposure['stk_loading']
+# factorExposure = pd.read_csv(rootPath+'factor\\LGBM因子载荷矩阵0317.csv',index_col = 0)
+
+# 神经网络因子读取方式
+# factorExposure = pd.read_pickle(rootPath+'factor\\prediction\\KNN5Factor.pkl')
+# factorExposure = pd.DataFrame(factorExposure)
+
 #### 中性化处理
 medianFactorExposure = pd.DataFrame(columns = factorExposure.columns)
 medianArray = np.array(factorExposure.median(axis = 1)).reshape([len(factorExposure),1])
 medianMatrix = np.repeat(medianArray,len(factorExposure.columns),axis = 1)
 medianizedFactorExposure = pd.DataFrame(np.array(factorExposure) - medianMatrix)
 
+
 openPriceInfo = pd.read_pickle(rootPath+'data\\pickleMaskingOpenPrice.pickle')
 openPrice = pd.DataFrame(openPriceInfo['openPrice'])
 
-factorName = 'PLS Factor'
+factorName = 'XGBoost Factor'
 # 这里要求tradeDateList和openPrice的index的长度是一致的,格式为timestamp
 tradeDateList = openPrice.index.tolist()
 backtest = SingleFactorBacktest(factorName, medianizedFactorExposure, openPrice, tradeDateList, 'open')
 backtest.analyze()
 
 backtestResult = pd.DataFrame()
-backtestResult.loc[factorName, 'IC_mean'] = backtest.IC.mean()
-backtestResult.loc[factorName, 'ICIR'] = backtest.IC.mean() / backtest.IC.std()
-backtestResult.loc[factorName, 'rankIC_mean'] = backtest.rankIC.mean()
+backtestResult.loc[factorName, 'IC_mean'] = round(backtest.IC.mean(),4)
+backtestResult.loc[factorName, 'ICIR'] = round(backtest.IC.mean() / backtest.IC.std(),4)
+backtestResult.loc[factorName, 'rankIC_mean'] = round(backtest.rankIC.mean(),4)
 
 backtestResult.loc[factorName, 'cumRts'] = backtest.cumRts
 backtestResult.loc[factorName, 'annualVol'] = backtest.annualVol
@@ -40,4 +53,4 @@ backtestResult.loc[factorName, 'maxDrawdown'] = backtest.maxDrawdown
 backtestResult.loc[factorName, 'winRate'] = backtest.winRate
 backtestResult.loc[factorName, 'SharpeRatio'] = backtest.SharpeRatio
 
-backtestResult.to_csv(rootPath+'backtest\\PLS合成因子回测结果0304.csv',encoding = 'utf_8_sig')
+backtestResult.to_csv(rootPath+'backtest\\LGBM合成因子回测结果0409.csv',encoding = 'utf_8_sig')

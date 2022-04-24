@@ -11,31 +11,33 @@ rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaM
 gtja191FactorDict = scio.loadmat(rootPath+'data\\calcFactors_gtja191_20220204_.mat')
 notNaNRateDF = pd.DataFrame()
 pickleDict = {}
+# 记录时间和个股信息
+axis1Time = gtja191FactorDict['sharedInformation'][0, 0][0]
+axis2Stock = gtja191FactorDict['sharedInformation'][0, 0][1]
+stockList = []
+# 个股代码没有后缀，填上
+for stockInd in range(np.size(axis2Stock)):
+    if str(axis2Stock[stockInd][0][0])[0] == '6':
+        stockStr = str(axis2Stock[stockInd][0][0]) + '.SH'
+    else:
+        stockStr = str(axis2Stock[stockInd][0][0]) + '.SZ'
+    stockList.append(stockStr)
+pickleDict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
+# 记录个股信息
 for factorName in gtja191FactorDict:
-    if 'alpha' in factorName and int(factorName[5:]) < 43:
+    if 'alpha' in factorName and int(factorName[5:])<=50:
         result = gtja191FactorDict[factorName][0,0][0]
         description = gtja191FactorDict[factorName][0,0][1][0,0]
-        factorName = description[0][0]
         factorCal = description[1][0]
-        axis1Time = gtja191FactorDict['sharedInformation'][0,0][0]
-        axis2Stock = gtja191FactorDict['sharedInformation'][0,0][1]
-        stockList = []
-        # 个股代码没有后缀，填上
-        for stockInd in range(np.size(axis2Stock)):
-            if str(axis2Stock[stockInd][0][0])[0] == '6':
-                stockStr = str(axis2Stock[stockInd][0][0])+'.SH'
-            else:
-                stockStr = str(axis2Stock[stockInd][0][0])+'.SZ'
-            stockList.append(stockStr)
+        # 识别是否存在无穷值，若是则填充为nan
+        mapResult = result.reshape([np.shape(result)[0]*np.shape(result)[1],1])
+        InfRate = len(mapResult[np.isinf(mapResult)])/(np.shape(result)[0]*np.shape(result)[1])
+        if InfRate > 0:
+            print(factorName+'has inf number, the percent is '+str(InfRate))
+        result = pd.DataFrame(result)
+        result.replace([np.inf, -np.inf], np.nan)
+        pickleDict[factorName] = {'factorCalculation': factorCal, 'factorMatrix': result}
 
-        # 识别是否是空集，若是则舍去
-        #mapResult = result.reshape([np.shape(result)[0]*np.shape(result)[1],1])
-        #notNanRate = len(mapResult[~np.isnan(mapResult)])/(np.shape(result)[0]*np.shape(result)[1])
-        #print(factorName,notNanRate)
-        #notNaNRateDF.loc[factorName,'非空元素比例'] = notNanRate
-        #if notNanRate >0.2:
-        #    pickleDict[factorName] = {'factorCalculation': factorCal, 'factorMatrix': result}
-pickleDict['sharedInformation'] = {'axis1Time':axis1Time,'axis2Stock':stockList}
 # 提取40个因子做训练
 factorNameList = list(pickleDict.keys())
 pickle40Dict = {}
@@ -64,14 +66,6 @@ for ind in range(len(stockCodeFileNameArray)):
     stockList.append(currStockStr)
 # 获取时间列表，时间是数字，直接用.value读取即可
 timeList = list(marketInfoDict['aggregatedDataStruct']['sharedInformation']['allDates'].value[0])
-pickleDict['sharedInformation'] = {'axis1Time':timeList,'axis2Stock':stockList}
-
-# 获取于个股的开盘价,不知为何读入数据时发生了转置，为了保证列为时间序列，行为个股截面，转置回来
-# openPrice = marketInfoDict['aggregatedDataStruct']['stock']['properties']['fwd_open'].value.T
-# pickleDict['ForwardOpenPrice'] = openPrice
-# with open(rootPath+'data\\pickleMarketForwardOpenPrice.pickle','wb') as file:
-#     pickle.dump(pickleDict,file)
-# file.close()
 
 # 获取于收盘价交易的个股收益
 maskingPickleDict['sharedInformation'] = {'axis1Time':timeList,'axis2Stock':stockList}

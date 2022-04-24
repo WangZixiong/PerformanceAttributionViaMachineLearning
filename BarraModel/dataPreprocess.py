@@ -40,6 +40,7 @@ for sheetName in tqdm(sheetNameDict):
         fundFeatureDF.loc[fund,'startDay'] = currFundStartDay
         fundFeatureDF.loc[fund, 'endDay'] = currFundEndDay
         wholePeriod = (currFundEndDay-currFundStartDay).days
+        # 粗略的判断一下是日频净值还是周频净值
         if wholePeriod/currFundNAVDays < 2:
             fundFeatureDF.loc[fund,'frequency'] = 'daily'
         elif wholePeriod/currFundNAVDays > 5:

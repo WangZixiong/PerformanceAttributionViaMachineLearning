@@ -8,7 +8,6 @@ from sklearn import metrics
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split, GridSearchCV
-# from sklearn.externals import joblib
 from lightgbm.sklearn import LGBMRegressor
 from lightgbm import plot_importance, early_stopping, log_evaluation
 from data.basicData import BasicData
@@ -41,13 +40,13 @@ class LGBM():
         self.T = len(BasicData.basicFactor['sharedInformation']['axis1Time'])
         self.N = len(BasicData.basicFactor['sharedInformation']['axis2Stock'])
         self.rolling_step = 10
-        self.batch_size = 100
+        self.batch_size = 50
         self.val_proportion = 0.2
         self.tradeType = tradeType
     def get_tradedays(self):
         self.all_date = pd.DataFrame(BasicData.basicFactor['sharedInformation']['axis1Time'], columns=['date'])
-        self.all_date['date'] = (self.all_date.date - 719529) * 86400
-        self.all_date['date'] = pd.to_datetime(self.all_date.date, unit='s')
+        # self.all_date['date'] = (self.all_date.date - 719529) * 86400
+        # self.all_date['date'] = pd.to_datetime(self.all_date.date, unit='s')
         self.all_date = [str(d.date()) for d in self.all_date['date']]
         self.all_date = [int(d.replace('-', '')) for d in self.all_date]
         self.all_date.sort()
@@ -59,7 +58,8 @@ class LGBM():
             if key != 'sharedInformation':
                 factorNum += 1
                 # 0228因为要预测T+2时刻的收益率，因此时间维度提取-2之前的因子值即可
-                currFactorAllTimeAllStockValue = BasicData.basicFactor[key][:-2, :]
+                currFactorArray = np.array(BasicData.basicFactor[key])
+                currFactorAllTimeAllStockValue = currFactorArray[:-2, :]
                 # 判断因子值是否存在大量缺省
                 non_array = currFactorAllTimeAllStockValue[
                     (~np.isnan(currFactorAllTimeAllStockValue)) & (~np.isinf(currFactorAllTimeAllStockValue))]
@@ -71,7 +71,7 @@ class LGBM():
                 for ind in range(np.shape(currFactorAllTimeAllStockValue)[0]):
                     currFactorAllTimeAllStockValue[ind, :] = (currFactorAllTimeAllStockValue[ind, :] - min(currFactorAllTimeAllStockValue[ind, :])) \
                             / (max(currFactorAllTimeAllStockValue[ind, :]) - min(currFactorAllTimeAllStockValue[ind, :]))
-                if factorInd == 0:
+                if key == 'alpha1':
                     AllFactorAllStockAllTimeValue = currFactorAllTimeAllStockValue
                 else:
                     AllFactorAllStockAllTimeValue = np.hstack((AllFactorAllStockAllTimeValue, currFactorAllTimeAllStockValue))
@@ -86,29 +86,33 @@ class LGBM():
         #                                                int(np.shape(AllFactorAllStockAllTimeValue)[1] / stockNum))
         # self.X 三维数组，[时间，个股数，因子数]
         self.X = np.array(self.X)
-        with open(rootPath+r'data\LGBMData\LGBMData_feature.pkl', 'wb') as file:
+        with open(rootPath+r'data\LGBMData\LGBMData_feature2729_1.pkl', 'wb') as file:
             pickle.dump(self.X, file)
     def Y_preperation(self):
         self.get_tradedays()
         self.all_stock = BasicData.basicFactor['sharedInformation']['axis2Stock']
         # 使用本地的maskingOpenPrice格式为[时间，个股数]
-        maskingOpenPriceDict = pd.read_pickle(rootPath+r'data\pickleMaskingOpenPrice.pickle')
+        maskingOpenPriceDict = pd.read_pickle(rootPath+r'data\pickleMaskingOpenPrice2729Times.pickle')
         maskingOpenPriceDF = maskingOpenPriceDict['openPrice']
         self.Y = (maskingOpenPriceDF/maskingOpenPriceDF.shift(1))-1
         # 按照当日因子值交易，是按照次日开盘价买入，第三天开盘价卖出，因此因子对应收益率取[2:]，未来可能会出现X与Y对不齐的问题
         self.Y = np.array(self.Y)[2:, :]
-        with open(rootPath + r'data\LGBMData\LGBMData_label.pkl', 'wb') as file:
+        # 未来一周的个股收益率
+        # self.Y = (maskingOpenPriceDF.shift(-5) / maskingOpenPriceDF) - 1
+        # # 按照当日因子值交易，是按照次日开盘价买入，第三天开盘价卖出，因此因子对应收益率取[2:]，未来可能会出现X与Y对不齐的问题
+        # self.Y = np.array(self.Y)[2:np.shape(self.X)[0]+2, :]
+        with open(rootPath + r'data\LGBMData\LGBMData_label2729_1.pkl', 'wb') as file:
             pickle.dump(self.Y, file)
     def data_preparation(self):
         print('start data preperation')
-        if os.path.exists(rootPath + r'data\LGBMData\LGBMData_label.pkl'):
-            self.Y = pd.read_pickle(rootPath + r'data\LGBMData\LGBMData_label.pkl')
-        else:
-            self.Y_preperation()
-        if os.path.exists(rootPath+r'data\LGBMData\LGBMData_feature.pkl'):
-           self.X = pd.read_pickle(rootPath+r'data\LGBMData\LGBMData_feature.pkl')
+        if os.path.exists(rootPath+r'data\LGBMData\LGBMData_feature2729_1.pkl'):
+           self.X = pd.read_pickle(rootPath+r'data\LGBMData\LGBMData_feature2729_1.pkl')
         else:
            self.X_preperation()
+        if os.path.exists(rootPath + r'data\LGBMData\LGBMData_label2729_1.pkl'):
+            self.Y = pd.read_pickle(rootPath + r'data\LGBMData\LGBMData_label2729_1.pkl')
+        else:
+            self.Y_preperation()
         # 树模型需要非空的输入输出，需要将NaN的样本feature和label填充为0
         np.nan_to_num(self.Y, copy=False)
         np.nan_to_num(self.X, copy=False)

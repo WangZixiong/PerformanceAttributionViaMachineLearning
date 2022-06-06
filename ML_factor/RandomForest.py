@@ -7,27 +7,26 @@
 from sklearn import metrics
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split, GridSearchCV
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pickle
 import os
-import joblib
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 from data.basicData import BasicData
 import warnings
+import joblib
 warnings.filterwarnings("ignore")
 # 设置模型参数
 params = {
-    # 'criterion': 'squared_error',
-    'min_samples_split':2,
+    'criterion': 'squared_error',
     'n_jobs': -1,
     'random_state': 1,
 }
 
 param_grid = {
-    'n_estimators': [50, 100],
-    'max_depth': [2, 3, 5]
+    'n_estimators': [50, 100, 200],
+    'max_depth': [4, 8, 12]
 }
 class RF():
     def __init__(self,tradeType):
@@ -74,7 +73,6 @@ class RF():
                         AllFactorAllStockAllTimeValue = currFactorAllTimeAllStockValue
                     else:
                         AllFactorAllStockAllTimeValue = np.hstack((AllFactorAllStockAllTimeValue, currFactorAllTimeAllStockValue))
-                    # AllFactorAllStockAllTimeValue最终是时间*（因子数*个股数）的格式
         for timeInd,time in tqdm(enumerate(range(np.shape(AllFactorAllStockAllTimeValue)[0]))):
             currTimeAllStocksAllFactor = AllFactorAllStockAllTimeValue[timeInd,:]
             currTimeFactorMatrix = np.zeros([stockNum,factorNum])
@@ -83,7 +81,7 @@ class RF():
             self.X.append(currTimeFactorMatrix)
                 # self.X 三维数组，[时间，个股数，因子数]
         self.X = np.array(self.X)
-        with open(BasicData.rootPath+r'./data/RFData/RFData_feature.pkl', 'wb') as file:
+        with open(r'./data/RFData/RFData_feature.pkl', 'wb') as file:
             pickle.dump(self.X, file)
     def Y_preperation(self,nums = 300):
         self.get_tradedays()
@@ -108,17 +106,17 @@ class RF():
         self.Y = np.array(self.Y).T
         # 按照当日因子值交易，是按照次日开盘价买入，第三天开盘价卖出，因此因子对应收益率取[2:]，未来可能会出现X与Y对不齐的问题
         self.Y = self.Y[2:, :]
-        with open(BasicData.rootPath+r'./data/RFData/RFData_label.pkl', 'wb') as file:
+        with open(r'./data/RFData/RFData_label.pkl', 'wb') as file:
             pickle.dump(self.Y, file)
 
     def data_preparation(self):
         print('start data preperation')
-        if os.path.exists(r'./data/RFData/RFData_label.pkl'):
-            self.Y = pd.read_pickle(r'./data/RFData/RFData_label.pkl')
+        if os.path.exists(r'./data/LGBMData/LGBMData_label.pkl'):
+            self.Y = pd.read_pickle(r'./data/LGBMData/LGBMData_label.pkl')
         else:
             self.Y_preperation()
-        if os.path.exists(r'./data/RFData/RFData_feature.pkl'):
-           self.X = pd.read_pickle(r'./data/RFData/RFData_feature.pkl')
+        if os.path.exists(r'./data/LGBMData/LGBMData_feature.pkl'):
+           self.X = pd.read_pickle(r'./data/LGBMData/LGBMData_feature.pkl')
         else:
            self.X_preperation()
         # 树模型需要非空的输入输出，需要将NaN的样本feature和label填充为0
@@ -133,6 +131,7 @@ class RF():
         for p in gsearch.best_params_:
             params[p] = gsearch.best_params_[p]
         self.params = params
+        print(self.params)
         model = RandomForestRegressor(**params)
         model.fit(train_x, train_y)
         return model
@@ -161,7 +160,11 @@ class RF():
             whole_X = whole_X.reshape(np.shape(whole_X)[0] * np.shape(whole_X)[1], np.shape(whole_X)[2])
             whole_Y = self.Y[StartTimeInd:EndTimeInd, :]
             whole_Y = whole_Y.reshape(np.shape(whole_Y)[0] * np.shape(whole_Y)[1], 1)
-            train_X, valid_X, train_Y, valid_Y = train_test_split(whole_X, whole_Y, test_size=0.2)
+            # 0321 删除特征中的全零数据，使得输入数据更精确
+            defaultLoc = (whole_X == 0).all(1)
+            adjusted_X, adjusted_Y = np.delete(whole_X, defaultLoc, axis=0), np.delete(whole_Y, defaultLoc, axis=0)
+
+            train_X, valid_X, train_Y, valid_Y = train_test_split(adjusted_X, adjusted_Y, test_size=0.2)
             # valid_X, test_X, valid_Y, test_Y = train_test_split(valid_X, valid_Y, test_size=self.rolling_step * self.N)
             # step 2 LGBM模型训练和测试
             # model = self.train_model(train_X, train_Y, valid_X, valid_Y, params, param_grid)
@@ -173,18 +176,6 @@ class RF():
             # 0317 保存每一期feature importance,最后一期模型
             joblib.dump(model, 'RFModel.pkl')
             featureImportanceDF.loc[step, :] = model.feature_importances_
-            # 0317 画出训练误差曲线
-            results = model.evals_result()
-            epochs = len(results['validation_0']['rmse'])
-            x_axis = range(0, epochs)
-            # plot log loss
-            fig, ax = pyplot.subplots()
-            ax.plot(x_axis, results['validation_0']['rmse'], label='Train')
-            ax.plot(x_axis, results['validation_1']['rmse'], label='Test')
-            ax.legend()
-            pyplot.ylabel('RMSE Loss')
-            pyplot.title('RF Loss')
-            # pyplot.show()
             # 画出feature importance曲线
             # plot_importance(model, max_num_features=20)
             # plt.show()

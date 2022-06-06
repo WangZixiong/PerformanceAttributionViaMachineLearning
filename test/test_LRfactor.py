@@ -5,9 +5,9 @@
 @Software: PyCharm
 """
 from data.basicData import BasicData
-from ML_factor.Penal_linear import Penal_linearregre
-from ML_factor.Average_linear import Average_linearregre
-from ML_factor.basicfactor_LR import Basicfactor_LR
+from LR_factor.Penal_linear import Penal_linearregre
+from LR_factor.Average_linear import Average_linearregre
+from LR_factor.basicfactor_LR import Basicfactor_LR
 import os
 print(os.path.abspath('.'))
 # year='2011-2013'
@@ -23,25 +23,6 @@ years=['2011-2013','2014-2016','2017-2020']
 #     c.load_data(year=year,ini=True,nums='all')
 
 #%%
-# err_info=[]
-# for method_name in ['LASSO','ELAST','RIDGE']:
-    
-# # for method_name in ['PLS','PCR']:
-#     for year in years:
-#         try:
-#             # method_name='RIDGE'
-#             if method_name in ['PLS','PCR']:
-#                 c = Average_linearregre(method=method_name,year=year)
-#             elif method_name in ['OLS','LASSO','RIDGE','ELAST']:
-#                 c = Penal_linearregre(method=method_name,year=year)
-#             # c.data_preparation(ini=False,nums='all')
-#             model,predict_y = c.rolling_fit()
-#         except:
-#             print('!!!error!!!!')
-#             err_info.append({'year':year,'method_name':method_name})
-#             break
-
-
 # for method_name in ['LASSO','ELAST','RIDGE']:
 for method_name in ['PLS','PCR']:
     for year in years:

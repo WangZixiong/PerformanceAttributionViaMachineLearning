@@ -1,21 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon Jan  14 16:02:51 2020
-
-@author: Wang
+用于对因子载荷矩阵进行回测
+@author: Bruce Wang
 """
 import numpy as np
 import pandas as pd
 from scipy import stats
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-
-import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.colors import ListedColormap
 
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import KFold, GridSearchCV
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 rootPath = 'C:\\Users\\Lenovo\\Desktop\\毕设材料\\PerformanceAttributionViaMachineLearning\\'
@@ -564,32 +560,50 @@ class SingleFactorBacktest(object):
 
 
     def plotRtsFigure(self,rts,rtsLabel):
-        fig, [ax1, ax2] = plt.subplots(2, 1, figsize=(16, 10))
-        ax1.bar(self.longRts.index, 100 * self.longRts, color='red', label='single term long rts')
-        ax1.set_ylabel('single term returns(%)')
-        ax1.legend()
-        ax1Right = ax1.twinx()
-        ax1Right.plot(((1 + self.longShortRts).cumprod() - 1)*100, linewidth=3, label='long-short cum rts')
-        ax1Right.plot(((1 + self.longRts).cumprod() - 1)*100, linewidth=3, label='long cum rts')
-        ax1Right.plot(((1 + self.shortRts).cumprod() - 1)*100, linewidth=3, label='short cum rts')
-        ax1Right.set_ylabel('cum returns(%)')
-        ax1Right.legend()
-        ticks = np.arange(0, self.longShortRts.shape[0], 90)
-        #ax1.set_xticks(ticks)
-        #ax1.set_xticklabels(labels=self.longShortRts.index[ticks])
-        fig.autofmt_xdate(rotation=45)
-        ax2.plot(((1 + rts).cumprod() - 1)*100, linewidth=3, color='red', label=rtsLabel)
-        ax2.set_ylabel('cum returns(%)')
-        ax2.legend()
+        # fig, [ax1, ax2] = plt.subplots(2, 1, figsize=(16, 10))
+        # ax1.bar(self.longRts.index, 100 * self.longRts, color='red', label='single term long rts')
+        # ax1.set_ylabel('single term returns(%)')
+        # ax1.legend()
+        # ax1Right = ax1.twinx()
+        # ax1Right.plot(((1 + self.longShortRts).cumprod() - 1)*100, linewidth=3, label='long-short cum rts')
+        # ax1Right.plot(((1 + self.longRts).cumprod() - 1)*100, linewidth=3, label='long cum rts')
+        # ax1Right.plot(((1 + self.shortRts).cumprod() - 1)*100, linewidth=3, label='short cum rts')
+        # ax1Right.set_ylabel('cum returns(%)')
+        # ax1Right.legend()
+        # ticks = np.arange(0, self.longShortRts.shape[0], 90)
+        # #ax1.set_xticks(ticks)
+        # #ax1.set_xticklabels(labels=self.longShortRts.index[ticks])
+        # fig.autofmt_xdate(rotation=45)
+        # ax2.plot(((1 + rts).cumprod() - 1)*100, linewidth=3, color='red', label=rtsLabel)
+        # ax2.set_ylabel('cum returns(%)')
+        # ax2.legend()
         # ax2Right = ax2.twinx()
         # ax2Right.fill_between(self.drawdown.index, 100 * self.drawdown, 0, color='grey', label='drawdown')
         # ax2Right.set_ylabel('drawdown(%)')
-        #ax2.set_xticks(ticks)
-        #ax2.set_xticklabels(labels=self.longShortRts.index[ticks])
+        # ax2.set_xticks(ticks)
+        # ax2.set_xticklabels(labels=self.longShortRts.index[ticks])
         # fig.autofmt_xdate(rotation=45)
         # ax2Right.legend()
+        fig, ax1 = plt.subplots(1, 1, figsize=(16, 12))
+        ax1.bar(self.longRts.index, 100 * self.longRts, color='red', label='single term long rts')
+        plt.tick_params(size=10)
+        ax1.set_ylabel('single term returns(%)',fontsize = 30)
+        plt.tick_params(size=10)
+        plt.rcParams.update({'font.size': 25})
+        ax1.legend(loc = 'upper right')
+        ax1Right = ax1.twinx()
+        ax1Right.plot(((1 + self.longShortRts).cumprod() - 1) * 100, linewidth=6, label='long-short cum rts')
+        ax1Right.plot(((1 + self.longRts).cumprod() - 1) * 100, linewidth=6, label='long cum rts')
+        ax1Right.plot(((1 + self.shortRts).cumprod() - 1) * 100, linewidth=6, label='short cum rts')
+        ax1Right.set_ylabel('cum returns(%)',fontsize = 30)
+        plt.tick_params(size=10)
+        plt.rcParams.update({'font.size': 25})
+        ax1Right.legend(loc = 'upper left')
 
-        plt.suptitle('%s Backtest Performance: ' % self.factorName)
+        ticks = np.arange(0, self.longShortRts.shape[0], 90)
+        fig.autofmt_xdate(rotation=45)
+
+        plt.suptitle('%s Performance' % self.factorName,fontsize = 40)
         plt.show()
 
     def plotTurnover(self):

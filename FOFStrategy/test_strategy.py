@@ -49,20 +49,6 @@ for season in seasonList[1:]:
 startSeasonIndex,endSeasonIndex = seasonList.index(startSeason),seasonList.index(endSeason)
 allTime = [time for time in allFundNAV.index if time >= startTime and time <= endTime]
 
-allTimeNAV = pd.DataFrame(columns = ['NAV'])
-for seasonInd in tqdm(range(startSeasonIndex,endSeasonIndex+1)):
-    currSeason = seasonList[seasonInd]
-    seasonStartTime, seasonEndTime = seasonDict[currSeason]
-    timeList = [time for time in allFundNAV.index.tolist() if time <= seasonEndTime and time >= seasonStartTime]
-    currSeasonStrategy = Strategy(seasonStartTime, seasonEndTime, allFundNAV, allFundExposureDict)
-    enoughNAVFundList = currSeasonStrategy.selectedAvailableFund()
-    if type(enoughNAVFundList) != str:
-        currSeasonAllFundCumNAVDF = currSeasonStrategy.calNextPeriodReturn(enoughNAVFundList)
-    if seasonInd == startSeasonIndex:
-        allTimeNAV = currSeasonAllFundCumNAVDF
-    else:
-        allTimeNAV = allTimeNAV.append(currSeasonAllFundCumNAVDF*allTimeNAV.iloc[-1,0])
-
 allTimeHighExposureNAV = pd.DataFrame(columns = ['NAV'])
 seasonExposureDict = {}
 for seasonInd in tqdm(range(startSeasonIndex,endSeasonIndex+1)):
@@ -82,6 +68,20 @@ for seasonInd in tqdm(range(startSeasonIndex,endSeasonIndex+1)):
         allTimeHighExposureNAV = currSeasonAllFundCumNAVDF
     else:
         allTimeHighExposureNAV = allTimeHighExposureNAV.append(currSeasonAllFundCumNAVDF*allTimeHighExposureNAV.iloc[-1,0])
+
+allTimeNAV = pd.DataFrame(columns = ['NAV'])
+for seasonInd in tqdm(range(startSeasonIndex,endSeasonIndex+1)):
+    currSeason = seasonList[seasonInd]
+    seasonStartTime, seasonEndTime = seasonDict[currSeason]
+    timeList = [time for time in allFundNAV.index.tolist() if time <= seasonEndTime and time >= seasonStartTime]
+    currSeasonStrategy = Strategy(seasonStartTime, seasonEndTime, allFundNAV, allFundExposureDict)
+    enoughNAVFundList = currSeasonStrategy.selectedAvailableFund()
+    if type(enoughNAVFundList) != str:
+        currSeasonAllFundCumNAVDF = currSeasonStrategy.calNextPeriodReturn(enoughNAVFundList)
+    if seasonInd == startSeasonIndex:
+        allTimeNAV = currSeasonAllFundCumNAVDF
+    else:
+        allTimeNAV = allTimeNAV.append(currSeasonAllFundCumNAVDF*allTimeNAV.iloc[-1,0])
 
 allTimeHighExposureNAV.to_excel(rootPath+'strategy\\LGBM因子选基策略累计净值.xlsx')
 allTimeNAV.to_excel(rootPath+'strategy\\全部量化私募均值累计净值.xlsx')

@@ -21,7 +21,7 @@ from sklearn.metrics import r2_score
 from scipy.stats.mstats import winsorize
 from sklearn import preprocessing
 import copy
-from ML_factor.basicfactor_LR import Basicfactor_LR
+from LR_factor.basicfactor_LR import Basicfactor_LR
 
 class PCR():
     def __init__(self,n_copn=3):

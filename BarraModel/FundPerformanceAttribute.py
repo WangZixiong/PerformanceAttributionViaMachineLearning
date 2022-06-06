@@ -61,8 +61,8 @@ class FundPerformanceAttribute():
         currFactorPeriodReturn = sm.add_constant(currFactorPeriodReturn)
         model = sm.OLS(np.array(currFundNAVPeriodReturn).astype(float),np.array(currFactorPeriodReturn).astype(float))
         results = model.fit()
-        FundFactorExposure, FactorTValue, FactorPValue, score = results.params.astype(float),results.tvalues.astype(float),results.pvalues.astype(float),results.rsquared
-        return [FundFactorExposure, FactorTValue, FactorPValue, score, results]
+        return results
+
     def getExcessReturn(self):
         # 0423 按照年份取基金净值时间区间
         if self.year != 0:
@@ -74,13 +74,14 @@ class FundPerformanceAttribute():
         # 按照基金净值的时间点将时间分成一段一段的
         fundAvailableTime = []
         for time in untilCurrYearTime:
-            if self.rawFundNAV[time] > 0:
+            if np.isnan(self.rawFundNAV[time]) == 0:
                 fundAvailableTime.append(time)
         if len(fundAvailableTime) >30:
             startNAVTime, endNAVTime = fundAvailableTime[1], fundAvailableTime[-1]
             PeriodFactorReturn, PeriodNAVReturn = self.getAdjustedBarraMLReturn_NAVReturn(fundAvailableTime)
             PeriodFactorReturn.fillna(0,inplace=True)
-            FundFactorExposure, FactorTValue, FactorPValue, score,results = self.getFundFactorExposure(PeriodFactorReturn, PeriodNAVReturn)
+            results = self.getFundFactorExposure(PeriodFactorReturn, PeriodNAVReturn)
+            FundFactorExposure, FactorTValue, FactorPValue, score = results.params.astype(float),results.tvalues.astype(float),results.pvalues.astype(float),results.rsquared
             alphaDF = pd.DataFrame(index = fundAvailableTime[1:])
             for time in alphaDF.index:
                 timeInd = fundAvailableTime.index(time)-1
@@ -88,14 +89,15 @@ class FundPerformanceAttribute():
             return results,alphaDF
         else:
             print(str(self.year)+'年'+self.fund+'净值数据过少')
-            return 0
+            print('可使用净值数目为' + str(len(fundAvailableTime)))
+            return 0,[0]
 
 
     def getRollingFundExposure(self,lookbackPeriod):
         # 在本函数中，按照基金净值的时间点将时间分成一段一段的
         fundAvailableTime = []
         for time in self.allTime:
-            if self.rawFundNAV[time] > 0:
+            if np.isnan(self.rawFundNAV[time]) == 0:
                 fundAvailableTime.append(time)
         # 设定rolling长度
         if lookbackPeriod == '季度':
@@ -120,6 +122,8 @@ class FundPerformanceAttribute():
             rollingMonthAmount = endNAVTime.year*12+endNAVTime.month - firstRollingEndTime.year*12-firstRollingEndTime.month + 1
             wholeStartYear, wholeStartMonth, wholeEndYear, wholeEndMonth = startNAVTime.year,startNAVTime.month,endNAVTime.year,endNAVTime.month
 
+            lastPeriodStartTime, lastPeriodStartTimeInd = startNAVTime,0
+            lastPeriodEndTime, lastPeriodEndTimeInd = endNAVTime,-1
             for rollingNum in tqdm(range(rollingMonthAmount)):
                 # 如果是第一个周期，则开始时间为第一个净值收益率时间（这里确认一下是净值收益率时间，不是净值时间！！！！！！！！！）
                 if rollingNum == 0:
@@ -135,11 +139,14 @@ class FundPerformanceAttribute():
                     # 提取本月的所有净值数值不为0的日期
                     startTimeMonthNAVTimeList = [time for time in fundAvailableTime if time.year == startTimeYear and time.month == startTimeMonth]
                     # 如果本月没有不为0的日期，就用最一开始的日期作为开始日期，有点鲁莽但保证能运行出来
-                    if startTimeMonthNAVTimeList == []:
-                        periodStartTime, periodStartTimeInd = startNAVTime, 0
-                    else:
+                    if startTimeMonthNAVTimeList != []:
                         startTimeMonthNAVTimeList.sort()
-                        periodStartTime,periodStartTimeInd = startTimeMonthNAVTimeList[0],fundAvailableTime.index(startTimeMonthNAVTimeList[0])
+                        periodStartTime, periodStartTimeInd = startTimeMonthNAVTimeList[0], fundAvailableTime.index(
+                            startTimeMonthNAVTimeList[0])
+                    else:
+                        periodStartTime, periodStartTimeInd = lastPeriodStartTime, lastPeriodStartTimeInd
+                lastPeriodStartTime, lastPeriodStartTimeInd = periodStartTime, periodStartTimeInd
+
                 # 如果是最后一个周期，则结束时间为最后一个净值收益率时间
                 if rollingNum == rollingMonthAmount - 1:
                     endTime = endNAVTime
@@ -155,19 +162,29 @@ class FundPerformanceAttribute():
                     endTimeMonthNAVTimeList = [time for time in fundAvailableTime if
                                                  time.year == endTimeYear and time.month == endTimeMonth]
                     # 如果本月没有不为0的日期，就用最后一个日期作为结束日期，有点鲁莽但保证能运行出来
-                    if endTimeMonthNAVTimeList == []:
-                        periodEndTime, periodEndTimeInd = endNAVTime,len(fundAvailableTime)-1
-                    else:
+                    if endTimeMonthNAVTimeList != []:
                         endTimeMonthNAVTimeList.sort()
                         periodEndTime,periodEndTimeInd = endTimeMonthNAVTimeList[-1],fundAvailableTime.index(endTimeMonthNAVTimeList[-1])
+                    else:
+                        # 防止一种情况发生：基金一年之内没有净值数据，导致滑动窗口的startTime一直向前但endTime从未改变，最终导致滑动窗口没有长度
+                        if (lastPeriodEndTime - periodStartTime).days <= 0:
+                            periodEndTime, periodEndTimeInd = endNAVTime,-1
+                            print(self.fund+'在'+str(endTimeYear*100+endTimeMonth)+'之前一年的滚动窗口内没有净值数据')
+                            continue
+                        else:
+                            periodEndTime, periodEndTimeInd = lastPeriodEndTime, lastPeriodEndTimeInd
+                lastPeriodEndTime, lastPeriodEndTimeInd = periodEndTime, periodEndTimeInd
 
-                    periodTimeList = fundAvailableTime[periodStartTimeInd:periodEndTimeInd+1]
-                    PeriodFactorReturn,PeriodNAVReturn = self.getAdjustedBarraMLReturn_NAVReturn(periodTimeList)
-                    [FundFactorExposure, FactorTValue, FactorPValue, score, results] = self.getFundFactorExposure(PeriodFactorReturn, PeriodNAVReturn)
+                periodTimeList = fundAvailableTime[periodStartTimeInd:periodEndTimeInd]
+                PeriodFactorReturn,PeriodNAVReturn = self.getAdjustedBarraMLReturn_NAVReturn(periodTimeList)
+                results = self.getFundFactorExposure(PeriodFactorReturn, PeriodNAVReturn)
+
                 ind = str(startTimeYear*100+startTimeMonth)+'-'+str(endTimeYear*100+endTimeMonth)
-                AllPeriodFundFactorExposure.loc[ind,self.barra_ML_Return.columns.tolist()] = FundFactorExposure
-                AllPeriodFactorTValue.loc[ind,self.barra_ML_Return.columns.tolist()] = FactorTValue
-                AllPeriodFactorPValue.loc[ind,self.barra_ML_Return.columns.tolist()] = FactorPValue
-                AllPeriodScore.loc[ind,'score'] = score
+                AllPeriodFundFactorExposure.loc[ind, ['factorExposure']] = results.params[0]
+                AllPeriodFundFactorExposure.loc[ind, ['factorReturnCumReturnAttribution']] = ((1 + PeriodFactorReturn).cumprod() - 1).iloc[-1, 0] * results.params[0]
+                AllPeriodFundFactorExposure.loc[ind, ['NAVReturnCumReturn']] = ((1 + PeriodNAVReturn).cumprod() - 1).iloc[-1, 0]
+                AllPeriodFactorTValue.loc[ind,['factorTValue']] = results.pvalues[0]
+                AllPeriodFactorPValue.loc[ind, ['factorPValue']] = results.tvalues[0]
+                AllPeriodScore.loc[ind,'score'] = results.rsquared
 
             return AllPeriodFundFactorExposure, AllPeriodFactorTValue, AllPeriodFactorPValue, AllPeriodScore

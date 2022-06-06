@@ -4,7 +4,7 @@
 @File    : test_MLfactor.py
 @Software: PyCharm
 """
-from ML_factor.model_process import process_model
+from LR_factor.model_process import process_model
 import os
 import pandas as pd
 import numpy as np

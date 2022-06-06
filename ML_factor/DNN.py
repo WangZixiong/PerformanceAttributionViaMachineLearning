@@ -15,15 +15,17 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
+import matplotlib.pyplot as plt
 
 
 class KNNModel(nn.Module):
-    def __init__(self):
+    def __init__(self, num_inputs):
         super().__init__()
+        self.num_inputs = num_inputs
 
     def set_base_layers(self, neurons=64, num_fc=1):
         self.fc_0 = nn.Sequential(
-            nn.Linear(174, neurons),
+            nn.Linear(self.num_inputs, neurons),
             nn.ReLU(),
             nn.Dropout()
         )
@@ -51,21 +53,21 @@ class KNN:
         self.rolling_size = 200 + self.step
 
     def data_load(self):
-        self.X = pd.read_pickle('./data/cleanData/cleanFactors_gtja191_20220204.pkl')
+        self.X = pd.read_pickle('./data/cleanData/x.pkl')
         self.Y = pd.read_pickle('./data/cleanData/y_prediction.pkl')
-        self.X = self.X[:, :-2, :]
-        self.Y = self.Y[:, 2:]
+        # self.X = self.X[:, :-2, :]
+        # self.Y = self.Y[:, 2:]
 
-    def init_model(self, neu_range=[64], fc_range=[1, 2, 3, 4, 5]):
+    def init_model(self, num_inputs, neu_range=[64], fc_range=[1, 2, 3, 4, 5]):
         self.model_list = list()
         para_list = list(itertools.product(neu_range, fc_range))
         for para in para_list:
-            model = KNNModel()
+            model = KNNModel(num_inputs)
             model.set_base_layers(*para)
             self.model_list.append(model)
 
     def get_rolling_data(self, r):
-        if r * self.step + self.rolling_size > self.X.shape[1]:
+        if r * self.step + self.rolling_size > self.X.shape[0]:
             X = self.X[:, r * self.step:, :]
             Y = self.Y[:, r * self.step:]
         else:
@@ -73,22 +75,23 @@ class KNN:
             Y = self.Y[:, r * self.step:r * self.step + self.rolling_size]
         X = torch.Tensor(X)
         X = torch.where(torch.isinf(X), torch.full_like(X, 0), X)
+        X = torch.where(torch.isnan(X), torch.full_like(X, 0), X)
         Y = torch.Tensor(Y)
         return X, Y
 
     def rolling_fit(self):
         self.data_load()
-        self.init_model()
+        self.init_model(self.X.shape[2])
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         for i, model in enumerate(self.model_list):
             print(f'model{i}')
-            for r in range(math.ceil((self.Y.shape[1]-self.rolling_size-1)/self.step)):
+            for r in range(math.ceil((self.Y.shape[0]-self.rolling_size-1)/self.step)):
                 print(f'\n Rolling step:{r} ')
                 X, Y = self.get_rolling_data(r)
-                X_test = X[:, -self.step:, :].flatten(0, 1)
-                Y_test = Y[:, -self.step:].flatten().unsqueeze(1)
-                X = X[:, :-self.step, :].flatten(0, 1)
-                Y = Y[:, :-self.step].flatten().unsqueeze(1)
+                X_test = X[-self.step:, :, :].flatten(0, 1)
+                Y_test = Y[-self.step:, :].flatten().unsqueeze(1)
+                X = X[:-self.step, :, :].flatten(0, 1)
+                Y = Y[:-self.step, :].flatten().unsqueeze(1)
                 dataset = TensorDataset(X, Y)
                 train_set, val_set = torch.utils.data.random_split(dataset, [round(Y.shape[0]*(1-self.val_proportion)),
                                                                              round(Y.shape[0]*self.val_proportion)])
@@ -96,9 +99,11 @@ class KNN:
                 val_loader = DataLoader(val_set, shuffle=True, batch_size=400)
                 model.to(device)
                 criterion = nn.MSELoss()
-                optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+                optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
                 best_loss = 1e9
                 start_time = time.time()
+                val_loss = list()
+                tra_loss = list()
                 for epoch in range(100):
                 # for epoch in range(2):
                     # model training
@@ -127,7 +132,8 @@ class KNN:
                           f'Validation Loss: {np.nanmean(valid_loss)} \t\t'
                           f'Time: {time.time()-start_time}'
                           )
-
+                    val_loss.append(np.nanmean(valid_loss))
+                    tra_loss.append(np.nanmean(train_loss))
                     # set early stop
                     if np.nanmean(valid_loss) < best_loss:
                         best_loss = np.nanmean(valid_loss)
@@ -144,6 +150,7 @@ class KNN:
                 test_loss = criterion(prediction, Y_test)
                 print(f' Model:{i} Rolling:{r} Loss on test set:{test_loss}')
 
+                plt.plot()
                 if r == 0:
                     predictions = prediction.detach().numpy()
                 else:

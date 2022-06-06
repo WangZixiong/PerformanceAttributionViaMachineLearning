@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, TensorDataset
 from data.basicData import BasicData
-from ML_factor.basicfactor_LR import Basicfactor_LR
+from LR_factor.basicfactor_LR import Basicfactor_LR
 # model=pd.read_pickle('../ML_factor/result/PCR_result.pickle')
 # model_df=[pd.DataFrame(np.nan,index=range(model['model_info']['batch_size']),columns=range(model[0]['coef'].shape[0]))]
 
